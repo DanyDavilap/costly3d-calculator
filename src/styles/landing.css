@@ -273,6 +273,56 @@
   align-items: center;
 }
 
+.landing .comparison-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.landing .comparison-card {
+  padding: 1.75rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.landing .comparison-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.landing .comparison-card ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.landing .comparison-card li {
+  margin-bottom: 0.5rem;
+}
+
+.landing .comparison-card.pro {
+  border: 1px solid rgba(91, 157, 255, 0.35);
+  box-shadow: 0 18px 40px rgba(60, 111, 209, 0.18);
+  background: linear-gradient(135deg, rgba(91, 157, 255, 0.08), rgba(255, 255, 255, 0.95));
+  position: relative;
+}
+
+.landing .comparison-card.pro .pro-badge {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-strong));
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+}
+
+.landing .comparison-card.pro .btn {
+  justify-self: start;
+}
+
 .landing .feature,
 .landing .benefit {
   padding: 1.5rem;

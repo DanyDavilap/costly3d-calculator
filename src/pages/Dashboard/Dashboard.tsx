@@ -1,6 +1,7 @@
 ﻿
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { jsPDF } from "jspdf";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import {
   Calculator,
@@ -31,10 +32,12 @@ interface HistoryRecord {
   id: string;
   date: string;
   name: string;
+  productName: string;
   category: string;
   inputs: PricingInputs;
   params: PricingParams;
   breakdown: PricingBreakdown;
+  total: number;
   quantity: number;
   status: "draft" | "sold";
   stockChanges: StockChange[];
@@ -54,6 +57,8 @@ const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const FREE_PRODUCT_LIMIT = 3;
+const IS_PRO_SANDBOX = false;
+const BRAND_COLOR = { r: 91, g: 157, b: 255 };
 
 const DEFAULT_PARAMS: PricingParams = {
   filamentCostPerKg: 30000,
@@ -136,11 +141,13 @@ const normalizeHistoryRecord = (
   return {
     id: raw.id ?? Date.now().toString(),
     date: raw.date ?? new Date().toLocaleDateString("es-AR"),
-    name: raw.name ?? "",
+    name: raw.name ?? raw.productName ?? "",
+    productName: raw.productName ?? raw.name ?? "",
     category: normalizedCategory,
     inputs,
     params,
     breakdown,
+    total: typeof raw.total === "number" ? raw.total : breakdown.finalPrice,
     quantity,
     status,
     stockChanges,
@@ -215,6 +222,8 @@ function Dashboard() {
   useEffect(() => {
     localStorage.setItem(CATEGORY_STORAGE_KEY, category.trim() || "General");
   }, [category]);
+
+  const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
     JSON.stringify({
@@ -301,6 +310,164 @@ function Dashboard() {
     }, 2000);
   };
 
+  const buildPdfDataFromResult = () => {
+    if (!result) return null;
+    const productName = toyName || "Producto";
+    const categoryName = category.trim() || "General";
+    return {
+      productName,
+      categoryName,
+      dateLabel: new Date().toLocaleDateString("es-AR"),
+      breakdown: {
+        materiales: result.breakdown.materialCost,
+        energia: result.breakdown.energyCost,
+        manoDeObra: result.breakdown.laborCost,
+        usoYMantenimiento: result.breakdown.wearCost + result.breakdown.operatingCost,
+        total: result.breakdown.finalPrice,
+      },
+    };
+  };
+
+  type PdfData = {
+    productName: string;
+    categoryName: string;
+    dateLabel: string;
+    breakdown: {
+      materiales: number;
+      energia: number;
+      manoDeObra: number;
+      usoYMantenimiento: number;
+      total: number;
+    };
+  };
+
+  const buildPdfDataFromRecord = (record: HistoryRecord): PdfData => ({
+    productName: record.productName || record.name || "Producto",
+    categoryName: record.category || "General",
+    dateLabel: record.date || new Date().toLocaleDateString("es-AR"),
+    breakdown: {
+      materiales: record.breakdown.materialCost,
+      energia: record.breakdown.energyCost,
+      manoDeObra: record.breakdown.laborCost,
+      usoYMantenimiento: record.breakdown.wearCost + record.breakdown.operatingCost,
+      total: record.breakdown.finalPrice,
+    },
+  });
+
+  const renderQuotationPdf = ({
+    productName,
+    categoryName,
+    dateLabel,
+    breakdown,
+  }: PdfData) => {
+    if (!breakdown) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageMargin = 16;
+    const rightEdge = pageWidth - pageMargin;
+    let cursorY = 24;
+    const lineGap = 7;
+    const lightDivider = () => {
+      doc.setDrawColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
+      doc.setLineWidth(0.4);
+      doc.line(pageMargin, cursorY, rightEdge, cursorY);
+      cursorY += 8;
+    };
+
+    const clientBreakdown = [
+      { label: "Materiales", value: breakdown.materiales },
+      { label: "Consumo energético", value: breakdown.energia },
+      { label: "Mano de obra", value: breakdown.manoDeObra },
+      { label: "Uso y mantenimiento de equipo", value: breakdown.usoYMantenimiento },
+    ];
+
+    doc.setFillColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
+    doc.roundedRect(pageMargin, 16, 22, 22, 5, 5, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("C3D", pageMargin + 6, 30);
+
+    doc.setTextColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("Cotización de producto", pageMargin + 30, 30);
+    cursorY = 46;
+    lightDivider();
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+    doc.setTextColor(17, 24, 39);
+    doc.text(`Producto: ${productName}`, pageMargin, cursorY);
+    cursorY += lineGap;
+    doc.text(`Categoría: ${categoryName}`, pageMargin, cursorY);
+    cursorY += lineGap;
+    doc.text(`Fecha: ${dateLabel}`, pageMargin, cursorY);
+    cursorY += 6;
+    lightDivider();
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Desglose", pageMargin, cursorY);
+    cursorY += lineGap;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(12);
+    clientBreakdown.forEach((item) => {
+      doc.text(item.label, pageMargin, cursorY);
+      doc.setFont("helvetica", "bold");
+      doc.text(formatCurrency(item.value), rightEdge, cursorY, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      cursorY += lineGap;
+    });
+    cursorY += 2;
+    lightDivider();
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
+    doc.text("TOTAL FINAL SUGERIDO", pageMargin, cursorY);
+    doc.setFontSize(18);
+    doc.text(formatCurrency(breakdown.total), rightEdge, cursorY + 1, { align: "right" });
+    cursorY += 12;
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Cotización generada con Costly3D", pageMargin, pageHeight - 16);
+
+    const fileSafeName = (productName || "producto")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+    doc.save(`cotizacion-${fileSafeName || "producto"}.pdf`);
+  };
+
+  const attemptPdfExport = (data: PdfData, allowExport: boolean) => {
+    console.log("PDF_EXPORT_ATTEMPT");
+    if (!allowExport) {
+      console.log("PDF_EXPORT_BLOCKED_FREE");
+      return;
+    }
+    renderQuotationPdf(data);
+    console.log("PDF_EXPORT_SUCCESS");
+  };
+
+  const exportQuotationPdf = () => {
+    const data = buildPdfDataFromResult();
+    if (!data) return;
+    const allowExport = !isFreeLimitReached || IS_PRO_SANDBOX;
+    attemptPdfExport(data, allowExport);
+  };
+
+  const exportRecordPdf = (record: HistoryRecord) => {
+    const data = buildPdfDataFromRecord(record);
+    attemptPdfExport(data, IS_PRO_SANDBOX);
+  };
+
   const getInputs = () => {
     const timeMinutes = totalPrintMinutes();
     const assemblyMinutesTotal = totalAssemblyMinutes();
@@ -327,10 +494,12 @@ function Dashboard() {
     id: recordId ?? Date.now().toString(),
     date: new Date().toLocaleDateString("es-AR"),
     name: toyName || "Sin nombre",
+    productName: toyName || "Sin nombre",
     category: category.trim() || "General",
     inputs,
     params: paramsSnapshot,
     breakdown,
+    total: breakdown.finalPrice,
     quantity: 1,
     status: "draft",
     stockChanges: [],
@@ -355,10 +524,12 @@ function Dashboard() {
         return {
           ...record,
           name: toyName || record.name,
+          productName: toyName || record.productName || record.name,
           category,
           inputs,
           params: paramsSnapshot,
           breakdown,
+          total: breakdown.finalPrice,
         };
       });
       if (updated) {
@@ -972,6 +1143,33 @@ function Dashboard() {
                       <div className="text-center">
                         <p className="text-sm font-medium mb-2">Precio sugerido de venta</p>
                         <p className="text-5xl font-bold text-green-600">{formatCurrency(result.breakdown.finalPrice)}</p>
+                        <div className="mt-4 flex items-center justify-center">
+                          <div
+                            className="relative inline-flex"
+                            title={!IS_PRO_SANDBOX && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                          >
+                            {!IS_PRO_SANDBOX && isFreeLimitReached && (
+                              <button
+                                type="button"
+                                className="absolute inset-0 cursor-not-allowed"
+                                onClick={exportQuotationPdf}
+                                aria-label="Disponible en Costly3D PRO"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              disabled={!IS_PRO_SANDBOX && isFreeLimitReached}
+                              onClick={exportQuotationPdf}
+                              className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-white px-4 py-2 text-sm font-semibold text-green-700 shadow-sm transition hover:bg-green-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                              title={!IS_PRO_SANDBOX && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                            >
+                              Exportar cotización (PDF)
+                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                                PRO
+                              </span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -1168,6 +1366,39 @@ function Dashboard() {
                             </td>
                             <td className="py-4 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
+                                <div className="relative inline-flex" title={!IS_PRO_SANDBOX ? "Disponible en Costly3D PRO" : undefined}>
+                                  {!IS_PRO_SANDBOX && (
+                                    <button
+                                      type="button"
+                                      className="absolute inset-0 cursor-not-allowed"
+                                      onClick={(event) => event.stopPropagation()}
+                                      aria-label="Disponible en Costly3D PRO"
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={!IS_PRO_SANDBOX}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      if (!IS_PRO_SANDBOX) return;
+                                      exportRecordPdf(record);
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    title={!IS_PRO_SANDBOX ? "Disponible en Costly3D PRO" : undefined}
+                                  >
+                                    {IS_PRO_SANDBOX ? (
+                                      <>
+                                        <Download size={14} />
+                                        PDF
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Lock size={14} />
+                                        PRO
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={(event) => {

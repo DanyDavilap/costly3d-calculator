@@ -140,6 +140,41 @@ export default function Landing({ onStart }: LandingProps) {
             </div>
           </section>
 
+          <section className="section comparison-section">
+            <div className="section-title">
+              <h2>Free vs Pro – Elegí cómo querés trabajar</h2>
+            </div>
+            <div className="comparison-grid">
+              <article className="card comparison-card">
+                <h3>Free</h3>
+                <ul>
+                  <li>Hasta 3 productos</li>
+                  <li>Cálculo básico de costos</li>
+                  <li>Historial limitado</li>
+                  <li>Exportación básica</li>
+                </ul>
+              </article>
+              <article className="card comparison-card pro">
+                <div className="pro-badge">PRO</div>
+                <h3>Pro</h3>
+                <ul>
+                  <li>Productos ilimitados</li>
+                  <li>Historial completo de cotizaciones</li>
+                  <li>Exportar cotizaciones profesionales</li>
+                  <li>Desglose interno avanzado</li>
+                  <li>Preparado para clientes</li>
+                </ul>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => alert("Costly3D PRO estará disponible pronto.")}
+                >
+                  Acceso anticipado a PRO
+                </button>
+              </article>
+            </div>
+          </section>
+
           <section className="card cta pro-cta">
             <div>
               <h2>Hoy puedes probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
