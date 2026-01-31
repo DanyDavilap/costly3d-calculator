@@ -1,8 +1,8 @@
 import "../../styles/landing.css";
-import rentabilidadImg from "../../assets/landing/pro-rentabilidad.svg";
-import costosFijosImg from "../../assets/landing/pro-costos-fijos.svg";
-import historialImg from "../../assets/landing/pro-historial.svg";
-import cotizacionesImg from "../../assets/landing/pro-cotizaciones.svg";
+import rentabilidadImg from "../../assets/img/rentabilidad real.png";
+import costosFijosImg from "../../assets/img/costos fijos.png";
+import historialImg from "../../assets/img/historial.png";
+import cotizacionesImg from "../../assets/img/cotizaciones.png";
 
 type LandingProps = {
   onStart: () => void;

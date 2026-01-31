@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
+import { track } from "@vercel/analytics";
+import { debugTrack } from "../../components/DebugAnalyticsPanel";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import {
   Calculator,
@@ -214,6 +216,7 @@ function Dashboard() {
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
+  const freeLimitTrackedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -222,6 +225,19 @@ function Dashboard() {
   useEffect(() => {
     localStorage.setItem(CATEGORY_STORAGE_KEY, category.trim() || "General");
   }, [category]);
+
+  useEffect(() => {
+    if (isProModalOpen && !freeLimitTrackedRef.current) {
+      if (import.meta.env.DEV) {
+        debugTrack("free_limit_reached", { source: "free_limit_modal" });
+      }
+      track("free_limit_reached", { source: "free_limit_modal" });
+      freeLimitTrackedRef.current = true;
+    }
+    if (!isProModalOpen) {
+      freeLimitTrackedRef.current = false;
+    }
+  }, [isProModalOpen]);
 
   const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
 
@@ -299,6 +315,19 @@ function Dashboard() {
       localStorage.setItem(key, JSON.stringify(stored));
     }
 
+    const domain = email.split("@")[1]?.toLowerCase() || "unknown";
+    if (import.meta.env.DEV) {
+      debugTrack("pro_email_submitted", {
+        source: "free_limit_modal",
+        has_email: true,
+        email_domain: domain,
+      });
+    }
+    track("pro_email_submitted", {
+      source: "free_limit_modal",
+      has_email: true,
+      email_domain: domain,
+    });
     console.log("PRO_WAITLIST_SUCCESS");
     setWaitlistSuccess(true);
 
@@ -1540,6 +1569,10 @@ function Dashboard() {
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
                 onClick={() => {
                   console.log("CTA_PRO_CLICK");
+                  if (import.meta.env.DEV) {
+                    debugTrack("pro_cta_click", { source: "free_limit_modal" });
+                  }
+                  track("pro_cta_click", { source: "free_limit_modal" });
                   setIsProModalOpen(false);
                   openWaitlistModal();
                 }}
