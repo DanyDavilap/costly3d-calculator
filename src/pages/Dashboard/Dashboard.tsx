@@ -202,6 +202,7 @@ function Dashboard() {
   const [isCalculating, setIsCalculating] = useState(false);
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -229,9 +230,8 @@ function Dashboard() {
     // Single source of truth: history persistence + free-limit checks live only here.
     const isGrowing = newRecords.length > records.length;
     if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
-      alert(
-        "Has alcanzado el límite de 3 productos en la versión gratuita. Accede a Costly3D completo para guardar más.",
-      );
+      // Mostrar modal PRO cuando el límite FREE impide guardar un nuevo producto.
+      setIsProModalOpen(true);
       return;
     }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
@@ -1204,6 +1204,70 @@ function Dashboard() {
           </div>
         </section>
       </div>
+      {isProModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setIsProModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Información sobre versión PRO"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Tu negocio 3D está creciendo</h2>
+                <p className="mt-3 text-sm text-gray-600">
+                  Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
+                </p>
+                <p className="mt-3 text-sm text-gray-600">
+                  La versión PRO está pensada para makers y talleres que quieren dejar de improvisar precios y empezar
+                  a escalar con claridad.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <ul className="mt-5 space-y-2 text-sm text-gray-700">
+              <li>Historial de productos ilimitado</li>
+              <li>Cotizaciones profesionales en PDF / Excel</li>
+              <li>Análisis real de rentabilidad por producto</li>
+              <li>Control avanzado de stock y categorías</li>
+              <li>Comparador de escenarios antes de vender</li>
+            </ul>
+
+            <p className="mt-5 text-sm font-medium text-gray-700">
+              Si ya estás vendiendo, Costly3D PRO te ahorra errores, tiempo y dinero.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                onClick={() => console.log("CTA_PRO_CLICK")}
+              >
+                Acceso anticipado PRO
+              </button>
+              <button
+                type="button"
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+                onClick={() => setIsProModalOpen(false)}
+              >
+                Seguir probando (solo lectura)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
