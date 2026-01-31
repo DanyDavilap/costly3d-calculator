@@ -203,6 +203,10 @@ function Dashboard() {
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
+  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
+  const [waitlistEmail, setWaitlistEmail] = useState("");
+  const [waitlistSuccess, setWaitlistSuccess] = useState(false);
+  const waitlistTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -245,6 +249,56 @@ function Dashboard() {
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
       lastSavedSignatureRef.current = options.signature;
     }
+  };
+
+  const closeWaitlistModal = () => {
+    if (waitlistTimerRef.current) {
+      window.clearTimeout(waitlistTimerRef.current);
+      waitlistTimerRef.current = null;
+    }
+    setIsWaitlistOpen(false);
+    setWaitlistSuccess(false);
+    setWaitlistEmail("");
+  };
+
+  const openWaitlistModal = () => {
+    console.log("PRO_WAITLIST_OPEN");
+    setIsWaitlistOpen(true);
+  };
+
+  const submitWaitlistEmail = () => {
+    const email = waitlistEmail.trim();
+    if (!email.includes("@")) return;
+
+    console.log("PRO_WAITLIST_SUBMIT", email);
+    const key = "costly3d_pro_waitlist";
+    let stored: string[] = [];
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        stored = parsed;
+      } else if (typeof parsed === "string" && parsed) {
+        stored = [parsed];
+      }
+    } catch (error) {
+      stored = [];
+    }
+
+    if (!stored.includes(email)) {
+      stored.push(email);
+      localStorage.setItem(key, JSON.stringify(stored));
+    }
+
+    console.log("PRO_WAITLIST_SUCCESS");
+    setWaitlistSuccess(true);
+
+    if (waitlistTimerRef.current) {
+      window.clearTimeout(waitlistTimerRef.current);
+    }
+    waitlistTimerRef.current = window.setTimeout(() => {
+      closeWaitlistModal();
+    }, 2000);
   };
 
   const getInputs = () => {
@@ -1253,7 +1307,11 @@ function Dashboard() {
               <button
                 type="button"
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                onClick={() => console.log("CTA_PRO_CLICK")}
+                onClick={() => {
+                  console.log("CTA_PRO_CLICK");
+                  setIsProModalOpen(false);
+                  openWaitlistModal();
+                }}
               >
                 Acceso anticipado PRO
               </button>
@@ -1265,6 +1323,76 @@ function Dashboard() {
                 Seguir probando (solo lectura)
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {isWaitlistOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={closeWaitlistModal}
+        >
+          <div
+            className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Acceso anticipado a Costly3D PRO"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Acceso anticipado a Costly3D PRO</h2>
+                <p className="mt-3 text-sm text-gray-600">
+                  Costly3D PRO está diseñado para makers y talleres que ya venden y quieren controlar sus costos con
+                  claridad.
+                </p>
+                <p className="mt-3 text-sm text-gray-600">Estamos habilitando el acceso de forma gradual.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeWaitlistModal}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            {waitlistSuccess ? (
+              <div className="mt-6 rounded-2xl bg-green-50 border border-green-100 p-4 text-green-700 text-sm font-medium">
+                ¡Listo! Te avisaremos cuando Costly3D PRO esté disponible.
+              </div>
+            ) : (
+              <>
+                <div className="mt-5">
+                  <input
+                    type="email"
+                    value={waitlistEmail}
+                    onChange={(event) => setWaitlistEmail(event.target.value)}
+                    placeholder="Tu email de trabajo"
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                    onClick={submitWaitlistEmail}
+                  >
+                    Quiero acceso PRO
+                  </button>
+                  <button
+                    type="button"
+                    className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+                    onClick={closeWaitlistModal}
+                  >
+                    Seguir probando (solo lectura)
+                  </button>
+                </div>
+                <p className="mt-4 text-xs text-gray-500">
+                  No enviamos spam. Te avisaremos cuando PRO esté disponible.
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}
