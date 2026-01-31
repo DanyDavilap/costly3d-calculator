@@ -52,6 +52,7 @@ const PARAMS_STORAGE_KEY = "calculatorBaseParams";
 const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
+const FREE_PRODUCT_LIMIT = 5;
 
 const DEFAULT_PARAMS: PricingParams = {
   filamentCostPerKg: 30000,
@@ -278,6 +279,14 @@ function Dashboard() {
         saveToLocalStorage(nextRecords);
         return;
       }
+    }
+
+    // Free plan: allow calculations but block new history entries when the limit is reached.
+    if (records.length >= FREE_PRODUCT_LIMIT) {
+      alert(
+        "Has alcanzado el límite de 5 productos en la versión gratuita. Accede a Costly3D completo para guardar más.",
+      );
+      return;
     }
 
     const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
