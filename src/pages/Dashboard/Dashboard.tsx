@@ -15,6 +15,7 @@ import {
   Save,
   Trash2,
   Copy,
+  Lock,
   Download,
   Sparkles,
   Rocket,
@@ -1149,6 +1150,59 @@ function Dashboard() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <section className="max-w-5xl mx-auto mt-10">
+          <div className="bg-white rounded-3xl shadow-2xl p-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">Funciones PRO (próximamente)</h2>
+              <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">PRO</span>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              {[
+                {
+                  title: "Análisis de rentabilidad",
+                  description: "Visualiza ganancia neta, margen real y ranking de productos.",
+                },
+                {
+                  title: "Costos fijos y amortización",
+                  description: "Distribuye alquiler, mantenimiento y desgaste de máquina.",
+                },
+                {
+                  title: "Exportar cotizaciones",
+                  description: "Descarga presupuestos en PDF o Excel listos para clientes.",
+                },
+                {
+                  title: "Historial ilimitado",
+                  description: "Guarda versiones y evoluciona tus precios sin límites.",
+                },
+                {
+                  title: "Comparador de escenarios",
+                  description: "Compara materiales, tiempos y márgenes antes de decidir.",
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  title="Disponible en versión PRO"
+                  className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
+                >
+                  <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                    PRO
+                  </span>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 text-slate-400">
+                      <Lock size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h3>
+                      <p className="text-sm text-gray-600">{item.description}</p>
+                      <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

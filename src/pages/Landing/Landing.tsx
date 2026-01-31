@@ -1,4 +1,8 @@
 import "../../styles/landing.css";
+import rentabilidadImg from "../../assets/landing/pro-rentabilidad.svg";
+import costosFijosImg from "../../assets/landing/pro-costos-fijos.svg";
+import historialImg from "../../assets/landing/pro-historial.svg";
+import cotizacionesImg from "../../assets/landing/pro-cotizaciones.svg";
 
 type LandingProps = {
   onStart: () => void;
@@ -96,6 +100,63 @@ export default function Landing({ onStart }: LandingProps) {
                 <h3>Stock y categorías</h3>
                 <p>Controla disponibilidad y organiza productos por rubro o tipo.</p>
               </article>
+            </div>
+          </section>
+
+          <section className="section pro-section">
+            <div className="section-title">
+              <h2>Lo que Costly3D puede hacer cuando tu negocio crece</h2>
+              <p>Diseñado para makers que dejan de improvisar y empiezan a escalar.</p>
+            </div>
+            <div className="pro-grid">
+              <article className="card pro-card">
+                <div className="pro-image">
+                  <img src={rentabilidadImg} alt="Captura de desglose de costos y total sugerido" />
+                </div>
+                <h3>Rentabilidad real</h3>
+                <p>Entiende cuánto ganas realmente por cada producto, no solo el precio final.</p>
+              </article>
+              <article className="card pro-card">
+                <div className="pro-image">
+                  <img src={costosFijosImg} alt="Vista de inputs de cálculo de costos fijos" />
+                </div>
+                <h3>Costos fijos distribuidos</h3>
+                <p>Costly3D considera gastos invisibles como mantenimiento y tiempo improductivo.</p>
+              </article>
+              <article className="card pro-card">
+                <div className="pro-image">
+                  <img src={historialImg} alt="Historial con categorías visibles" />
+                </div>
+                <h3>Historial reutilizable</h3>
+                <p>Convierte cada cálculo en una base sólida para futuras cotizaciones.</p>
+              </article>
+              <article className="card pro-card">
+                <div className="pro-image">
+                  <img src={cotizacionesImg} alt="Placeholder de exportación PDF y Excel" />
+                </div>
+                <h3>Cotizaciones profesionales</h3>
+                <p>Exporta presupuestos listos para enviar a clientes.</p>
+              </article>
+            </div>
+          </section>
+
+          <section className="card cta pro-cta">
+            <div>
+              <h2>Hoy puedes probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
+            </div>
+            <div className="cta-actions">
+              <button type="button" className="btn primary" onClick={onStart}>
+                Probar la calculadora
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => {
+                  window.location.href = "./early-access.html";
+                }}
+              >
+                Acceso anticipado PRO
+              </button>
             </div>
           </section>
 

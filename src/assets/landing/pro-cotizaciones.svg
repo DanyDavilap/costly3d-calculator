@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+  <rect width="640" height="420" fill="#fff7ed" />
+  <rect x="40" y="40" width="560" height="340" rx="20" fill="#ffffff" stroke="#fed7aa" stroke-width="4" />
+  <rect x="70" y="80" width="260" height="24" rx="12" fill="#fed7aa" />
+  <rect x="70" y="140" width="500" height="160" rx="16" fill="#ffedd5" />
+  <text x="70" y="330" font-family="Poppins, Arial, sans-serif" font-size="22" fill="#c2410c">
+    PDF / Excel
+  </text>
+  <text x="70" y="360" font-family="Poppins, Arial, sans-serif" font-size="18" fill="#fb923c">
+    Cotizaciones profesionales
+  </text>
+</svg>

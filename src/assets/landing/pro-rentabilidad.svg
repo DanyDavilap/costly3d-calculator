@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+  <rect width="640" height="420" fill="#f1f5ff" />
+  <rect x="40" y="40" width="560" height="340" rx="20" fill="#ffffff" stroke="#c7d2fe" stroke-width="4" />
+  <rect x="70" y="80" width="220" height="24" rx="12" fill="#c7d2fe" />
+  <rect x="70" y="130" width="500" height="70" rx="16" fill="#e0e7ff" />
+  <rect x="70" y="220" width="500" height="120" rx="16" fill="#eff6ff" />
+  <text x="70" y="320" font-family="Poppins, Arial, sans-serif" font-size="24" fill="#1e3a8a">
+    Desglose de costos
+  </text>
+  <text x="70" y="350" font-family="Poppins, Arial, sans-serif" font-size="18" fill="#3b82f6">
+    Total sugerido
+  </text>
+</svg>

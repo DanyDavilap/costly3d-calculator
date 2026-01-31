@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+  <rect width="640" height="420" fill="#eef2ff" />
+  <rect x="40" y="40" width="560" height="340" rx="20" fill="#ffffff" stroke="#c4b5fd" stroke-width="4" />
+  <rect x="70" y="80" width="200" height="24" rx="12" fill="#c4b5fd" />
+  <rect x="70" y="130" width="500" height="40" rx="10" fill="#ede9fe" />
+  <rect x="70" y="190" width="500" height="40" rx="10" fill="#ede9fe" />
+  <rect x="70" y="250" width="500" height="40" rx="10" fill="#ede9fe" />
+  <rect x="70" y="310" width="360" height="40" rx="10" fill="#ede9fe" />
+  <text x="70" y="360" font-family="Poppins, Arial, sans-serif" font-size="22" fill="#5b21b6">
+    Historial por categorías
+  </text>
+</svg>
