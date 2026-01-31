@@ -1,0 +1,13 @@
+:root {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+.app-shell {
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-secondary) 60%, #ffffff 100%);
+  min-height: 100vh;
+}
+
+.bg-app-gradient {
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-secondary) 60%, #ffffff 100%);
+}

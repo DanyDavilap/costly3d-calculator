@@ -1,0 +1,11 @@
+<svg width="160" height="40" viewBox="0 0 160 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="160" height="40" rx="12" fill="url(#paint0_linear)" />
+  <path d="M26 12C19.3726 12 14 17.3726 14 24C14 30.6274 19.3726 36 26 36C32.6274 36 38 30.6274 38 24C38 17.3726 32.6274 12 26 12ZM26 32C21.5817 32 18 28.4183 18 24C18 19.5817 21.5817 16 26 16C30.4183 16 34 19.5817 34 24C34 28.4183 30.4183 32 26 32Z" fill="white"/>
+  <text x="52" y="27" fill="white" font-family="Fredoka One, sans-serif" font-size="16">Totys Admin</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="0" y1="0" x2="160" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EC9FF"/>
+      <stop offset="1" stop-color="#A7BEFF"/>
+    </linearGradient>
+  </defs>
+</svg>

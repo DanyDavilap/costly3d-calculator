@@ -1,0 +1,13 @@
+{
+  "name": "Calculadora 3D",
+  "logo": "logo-light.svg",
+  "colors": {
+    "color-bg": "#eaf3ff",
+    "color-bg-secondary": "#f7faff",
+    "color-text": "#111111",
+    "color-accent": "#5b9dff",
+    "color-accent-strong": "#3c6fd1",
+    "color-surface": "#ffffff",
+    "color-border": "rgba(15, 23, 42, 0.08)"
+  }
+}
