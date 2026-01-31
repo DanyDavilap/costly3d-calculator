@@ -1,5 +1,6 @@
 ﻿
 import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
 import { track } from "@vercel/analytics";
@@ -29,6 +30,15 @@ import {
   PricingInputs,
   PricingParams,
 } from "../../utils/pricingCalculator";
+import {
+  createPdfTheme,
+  formatDate,
+  formatMoney,
+  renderFooter,
+  renderHeader,
+  type BrandSettings,
+} from "../../utils/pdfTheme";
+import { loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 
 interface HistoryRecord {
   id: string;
@@ -60,8 +70,21 @@ const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const FREE_PRODUCT_LIMIT = 3;
 const IS_PRO_SANDBOX = false;
-const BRAND_COLOR = { r: 91, g: 157, b: 255 };
 const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
+const MONTH_NAMES = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
 
 const DEFAULT_PARAMS: PricingParams = {
   filamentCostPerKg: 30000,
@@ -217,6 +240,10 @@ function Dashboard() {
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
+  const [brand, setBrand] = useState<BrandSettings>(() => loadBrandSettings());
+  const now = new Date();
+  const [reportMonth, setReportMonth] = useState(now.getMonth());
+  const [reportYear, setReportYear] = useState(now.getFullYear());
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -225,6 +252,10 @@ function Dashboard() {
   useEffect(() => {
     localStorage.setItem(CATEGORY_STORAGE_KEY, category.trim() || "General");
   }, [category]);
+
+  useEffect(() => {
+    saveBrandSettings(brand);
+  }, [brand]);
 
   useEffect(() => {
     if (!isProModalOpen) return;
@@ -247,6 +278,22 @@ function Dashboard() {
   }, [isProModalOpen]);
 
   const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
+
+  const updateBrandField = <K extends keyof BrandSettings>(key: K, value: BrandSettings[K]) => {
+    setBrand((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        updateBrandField("logoDataUrl", reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
     JSON.stringify({
@@ -305,7 +352,7 @@ function Dashboard() {
     return {
       productName,
       categoryName,
-      dateLabel: new Date().toLocaleDateString("es-AR"),
+      dateLabel: formatDate(new Date()),
       breakdown: {
         materiales: result.breakdown.materialCost,
         energia: result.breakdown.energyCost,
@@ -332,7 +379,7 @@ function Dashboard() {
   const buildPdfDataFromRecord = (record: HistoryRecord): PdfData => ({
     productName: record.productName || record.name || "Producto",
     categoryName: record.category || "General",
-    dateLabel: record.date || new Date().toLocaleDateString("es-AR"),
+    dateLabel: record.date || formatDate(new Date()),
     breakdown: {
       materiales: record.breakdown.materialCost,
       energia: record.breakdown.energyCost,
@@ -351,18 +398,10 @@ function Dashboard() {
     if (!breakdown) return;
 
     const doc = new jsPDF();
+    const theme = createPdfTheme(brand);
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const pageMargin = 16;
-    const rightEdge = pageWidth - pageMargin;
-    let cursorY = 24;
-    const lineGap = 7;
-    const lightDivider = () => {
-      doc.setDrawColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
-      doc.setLineWidth(0.4);
-      doc.line(pageMargin, cursorY, rightEdge, cursorY);
-      cursorY += 8;
-    };
+    const rightEdge = pageWidth - theme.marginX;
+    let cursorY = renderHeader(doc, brand, theme, "Cotización de producto");
 
     const clientBreakdown = [
       { label: "Materiales", value: breakdown.materiales },
@@ -371,60 +410,49 @@ function Dashboard() {
       { label: "Uso y mantenimiento de equipo", value: breakdown.usoYMantenimiento },
     ];
 
-    doc.setFillColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
-    doc.roundedRect(pageMargin, 16, 22, 22, 5, 5, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text("C3D", pageMargin + 6, 30);
-
-    doc.setTextColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("Cotización de producto", pageMargin + 30, 30);
-    cursorY = 46;
-    lightDivider();
-
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
+    doc.setFontSize(theme.textSize);
     doc.setTextColor(17, 24, 39);
-    doc.text(`Producto: ${productName}`, pageMargin, cursorY);
-    cursorY += lineGap;
-    doc.text(`Categoría: ${categoryName}`, pageMargin, cursorY);
-    cursorY += lineGap;
-    doc.text(`Fecha: ${dateLabel}`, pageMargin, cursorY);
+    doc.text(`Producto: ${productName}`, theme.marginX, cursorY);
+    cursorY += theme.lineGap;
+    doc.text(`Categoría: ${categoryName}`, theme.marginX, cursorY);
+    cursorY += theme.lineGap;
+    doc.text(`Fecha: ${dateLabel}`, theme.marginX, cursorY);
     cursorY += 6;
-    lightDivider();
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.4);
+    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+    cursorY += 8;
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Desglose", pageMargin, cursorY);
-    cursorY += lineGap;
+    doc.setFontSize(theme.textSize);
+    doc.text("Desglose", theme.marginX, cursorY);
+    cursorY += theme.lineGap;
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
+    doc.setFontSize(theme.textSize);
     clientBreakdown.forEach((item) => {
-      doc.text(item.label, pageMargin, cursorY);
+      doc.text(item.label, theme.marginX, cursorY);
       doc.setFont("helvetica", "bold");
-      doc.text(formatCurrency(item.value), rightEdge, cursorY, { align: "right" });
+      doc.text(formatMoney(item.value), rightEdge, cursorY, { align: "right" });
       doc.setFont("helvetica", "normal");
-      cursorY += lineGap;
+      cursorY += theme.lineGap;
     });
     cursorY += 2;
-    lightDivider();
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.4);
+    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+    cursorY += 8;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.setTextColor(BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b);
-    doc.text("TOTAL FINAL SUGERIDO", pageMargin, cursorY);
-    doc.setFontSize(18);
-    doc.text(formatCurrency(breakdown.total), rightEdge, cursorY + 1, { align: "right" });
+    doc.setTextColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.text("TOTAL FINAL SUGERIDO", theme.marginX, cursorY);
+    doc.setFontSize(theme.totalSize);
+    doc.text(formatMoney(breakdown.total), rightEdge, cursorY + 1, { align: "right" });
     cursorY += 12;
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
-    doc.text("Cotización generada con Costly3D", pageMargin, pageHeight - 16);
+    renderFooter(doc, brand, theme);
 
     const fileSafeName = (productName || "producto")
       .trim()
@@ -454,6 +482,124 @@ function Dashboard() {
   const exportRecordPdf = (record: HistoryRecord) => {
     const data = buildPdfDataFromRecord(record);
     attemptPdfExport(data, IS_PRO_SANDBOX);
+  };
+
+  const exportMonthlyReportPdf = () => {
+    const doc = new jsPDF();
+    const theme = createPdfTheme(brand);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const rightEdge = pageWidth - theme.marginX;
+
+    let cursorY = renderHeader(
+      doc,
+      brand,
+      theme,
+      "Reporte mensual",
+      `${reportMonthLabel} ${reportYear}`.trim(),
+    );
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(theme.textSize);
+    doc.setTextColor(17, 24, 39);
+    doc.text("Resumen", theme.marginX, cursorY);
+    cursorY += theme.lineGap;
+
+    const kpis = [
+      { label: "Total de cotizaciones", value: monthlyRecords.length.toString() },
+      { label: "Total de ingresos", value: formatMoney(monthlyTotal) },
+      { label: "Promedio por cotización", value: formatMoney(monthlyAverage) },
+    ];
+
+    kpis.forEach((item) => {
+      doc.setFont("helvetica", "normal");
+      doc.text(item.label, theme.marginX, cursorY);
+      doc.setFont("helvetica", "bold");
+      doc.text(item.value, rightEdge, cursorY, { align: "right" });
+      cursorY += theme.lineGap;
+    });
+
+    cursorY += 4;
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.4);
+    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+    cursorY += 8;
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Top 5 productos", theme.marginX, cursorY);
+    cursorY += theme.lineGap;
+
+    if (topProducts.length === 0) {
+      doc.setFont("helvetica", "normal");
+      doc.text("Sin datos para este mes.", theme.marginX, cursorY);
+      cursorY += theme.lineGap;
+    } else {
+      topProducts.forEach((item) => {
+        doc.setFont("helvetica", "normal");
+        doc.text(`• ${item.name}`, theme.marginX, cursorY);
+        doc.setFont("helvetica", "bold");
+        doc.text(formatMoney(item.total), rightEdge, cursorY, { align: "right" });
+        cursorY += theme.lineGap;
+      });
+    }
+
+    cursorY += 6;
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.4);
+    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+    cursorY += 8;
+
+    const colDate = theme.marginX;
+    const colProduct = colDate + 26;
+    const colCategory = colProduct + 62;
+    const colQty = rightEdge - 40;
+    const colTotal = rightEdge;
+
+    const renderTableHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.text("Fecha", colDate, cursorY);
+      doc.text("Producto", colProduct, cursorY);
+      doc.text("Categoría", colCategory, cursorY);
+      doc.text("Cant.", colQty, cursorY, { align: "right" });
+      doc.text("Total", colTotal, cursorY, { align: "right" });
+      cursorY += theme.lineGap;
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+      cursorY += 6;
+    };
+
+    const ensureSpace = (height: number) => {
+      if (cursorY + height < pageHeight - 24) return;
+      doc.addPage();
+      cursorY = renderHeader(
+        doc,
+        brand,
+        theme,
+        "Reporte mensual",
+        `${reportMonthLabel} ${reportYear}`.trim(),
+      );
+      renderTableHeader();
+    };
+
+    renderTableHeader();
+
+    monthlyRecords.forEach((record) => {
+      ensureSpace(theme.lineGap + 6);
+      const parsedDate = parseRecordDate(record.date);
+      const dateLabel = parsedDate ? formatDate(parsedDate) : record.date;
+      const totalValue = record.total || record.breakdown.finalPrice;
+      doc.setFont("helvetica", "normal");
+      doc.text(dateLabel, colDate, cursorY);
+      doc.text(record.productName || record.name || "Producto", colProduct, cursorY, { maxWidth: 60 });
+      doc.text(record.category || "General", colCategory, cursorY, { maxWidth: 40 });
+      doc.text(String(record.quantity || 1), colQty, cursorY, { align: "right" });
+      doc.text(formatMoney(totalValue), colTotal, cursorY, { align: "right" });
+      cursorY += theme.lineGap;
+    });
+
+    renderFooter(doc, brand, theme);
+    doc.save(`reporte-${reportYear}-${String(reportMonth + 1).padStart(2, "0")}.pdf`);
   };
 
   const getInputs = () => {
@@ -667,6 +813,23 @@ function Dashboard() {
     }).format(amount);
   };
 
+  const parseRecordDate = (value: string) => {
+    const normalized = value.trim();
+    if (!normalized) return null;
+    const parts = normalized.split(/[\/\-]/);
+    if (parts.length === 3) {
+      const [dayPart, monthPart, yearPart] = parts;
+      const day = Number.parseInt(dayPart, 10);
+      const month = Number.parseInt(monthPart, 10);
+      const year = Number.parseInt(yearPart, 10);
+      if (Number.isFinite(day) && Number.isFinite(month) && Number.isFinite(year)) {
+        return new Date(year, Math.max(0, month - 1), day);
+      }
+    }
+    const fallback = new Date(normalized);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  };
+
   const handleParamChange = <K extends keyof PricingParams>(key: K, value: string) => {
     const numericValue = parseFloat(value);
     setParams((prev) => ({
@@ -765,6 +928,34 @@ function Dashboard() {
     }
     return acc;
   }, []);
+
+  const reportMonthLabel = MONTH_NAMES[reportMonth] ?? "";
+  const monthlyRecords = records.filter((record) => {
+    const parsed = parseRecordDate(record.date);
+    if (!parsed) return false;
+    return parsed.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
+  });
+  const monthlyTotal = monthlyRecords.reduce((sum, record) => sum + (record.total || record.breakdown.finalPrice), 0);
+  const monthlyAverage = monthlyRecords.length > 0 ? monthlyTotal / monthlyRecords.length : 0;
+  const monthlyProductTotals = monthlyRecords.reduce<Record<string, number>>((acc, record) => {
+    const name = record.productName || record.name || "Producto";
+    acc[name] = (acc[name] ?? 0) + (record.total || record.breakdown.finalPrice);
+    return acc;
+  }, {});
+  const topProducts = Object.entries(monthlyProductTotals)
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+  const availableYears = Array.from(
+    new Set(
+      records
+        .map((record) => parseRecordDate(record.date)?.getFullYear())
+        .filter((year): year is number => typeof year === "number"),
+    ),
+  )
+    .concat(reportYear)
+    .filter((value, index, self) => self.indexOf(value) === index)
+    .sort((a, b) => b - a);
 
   const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
   return (
@@ -1266,12 +1457,44 @@ function Dashboard() {
               )}
 
               <div className="bg-white rounded-3xl shadow-2xl p-8">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                   <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                     <History size={28} className="text-blue-500" />
                     Historial de Productos
                   </h2>
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={reportMonth}
+                        onChange={(event) => setReportMonth(Number(event.target.value))}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700"
+                      >
+                        {MONTH_NAMES.map((name, index) => (
+                          <option key={name} value={index}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={reportYear}
+                        onChange={(event) => setReportYear(Number(event.target.value))}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700"
+                      >
+                        {availableYears.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={exportMonthlyReportPdf}
+                        disabled={records.length === 0}
+                        className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+                      >
+                        <Download size={18} />
+                        Reporte mensual
+                      </button>
+                    </div>
                     <button
                       onClick={exportToCSV}
                       disabled={records.length === 0}
@@ -1473,6 +1696,79 @@ function Dashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="max-w-5xl mx-auto mt-10">
+          <div className="bg-white rounded-3xl shadow-2xl p-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">Branding de cotizaciones</h2>
+              <span className="bg-blue-100 text-blue-600 text-xs font-semibold px-3 py-1 rounded-full">Marca</span>
+            </div>
+            <div className="grid md:grid-cols-2 gap-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre de marca</label>
+                <input
+                  type="text"
+                  value={brand.name}
+                  onChange={(event) => updateBrandField("name", event.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Color principal</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brand.primaryColor}
+                    onChange={(event) => updateBrandField("primaryColor", event.target.value)}
+                    className="h-12 w-14 rounded-lg border border-gray-200 p-1"
+                  />
+                  <input
+                    type="text"
+                    value={brand.primaryColor}
+                    onChange={(event) => updateBrandField("primaryColor", event.target.value)}
+                    className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Texto de pie</label>
+                <input
+                  type="text"
+                  value={brand.footerText}
+                  onChange={(event) => updateBrandField("footerText", event.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Logo (PNG/JPG)</label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="h-16 w-28 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+                    {brand.logoDataUrl ? (
+                      <img src={brand.logoDataUrl} alt="Logo de marca" className="h-full w-full object-contain" />
+                    ) : (
+                      <span className="text-xs text-gray-400">Sin logo</span>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg"
+                    onChange={handleLogoUpload}
+                    className="text-sm text-gray-600"
+                  />
+                  {brand.logoDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() => updateBrandField("logoDataUrl", "")}
+                      className="text-sm text-red-500 hover:text-red-600"
+                    >
+                      Quitar logo
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </section>
