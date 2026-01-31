@@ -1867,94 +1867,155 @@ function Dashboard() {
 
         <section className="max-w-5xl mx-auto mt-10">
           <div className="bg-white rounded-3xl shadow-2xl p-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <h2 className="text-2xl font-bold text-gray-800">Funciones PRO (próximamente)</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Funciones PRO (en desarrollo)</h2>
+                <p className="text-sm text-gray-600">
+                  Basado en tu historial y cotizaciones guardadas. No tenés que cargar datos de nuevo.
+                </p>
+              </div>
               <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">PRO</span>
             </div>
-            <div className="grid md:grid-cols-2 gap-4">
-              {[
-                {
-                  title: "Análisis de rentabilidad",
-                  description: "Visualiza ganancia neta, margen real y ranking de productos.",
-                },
-                {
-                  title: "Costos fijos y amortización",
-                  description: "Distribuye alquiler, mantenimiento y desgaste de máquina.",
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  title="Disponible en versión PRO"
-                  className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
-                >
-                  <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
-                    PRO
-                  </span>
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 text-slate-400">
-                      <Lock size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h3>
-                      <p className="text-sm text-gray-600">{item.description}</p>
-                      <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
 
-              <div className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60">
-                <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
-                  PRO
-                </span>
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 text-slate-400">
-                    <Lock size={20} />
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Documentos y marca</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  {
+                    title: "Personalización de marca",
+                    description: "Tus cotizaciones con tu logo y nombre de negocio.",
+                    bullets: ["Logo + nombre en documentos", "Estilo consistente en PDFs"],
+                    status: "Disponible en PRO",
+                  },
+                  {
+                    title: "Exportar cotizaciones",
+                    description: "Cotizaciones listas para enviar a clientes.",
+                    bullets: ["PDF profesional", "Excel para control interno"],
+                    status: "Disponible en PRO",
+                  },
+                  {
+                    title: "Reporte mensual",
+                    description: "Resumen mensual de cotizaciones e ingresos.",
+                    bullets: ["Totales y promedio", "Top productos del mes"],
+                    status: "Disponible en PRO",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.title}
+                    title="Disponible en versión PRO"
+                    className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
+                  >
+                    <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                      PRO
+                    </span>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 text-slate-400">
+                        <Lock size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h4>
+                        <p className="text-sm text-gray-600">{item.description}</p>
+                        <ul className="mt-2 text-xs text-gray-500 space-y-1">
+                          {item.bullets.map((bullet) => (
+                            <li key={bullet}>• {bullet}</li>
+                          ))}
+                        </ul>
+                        <span className="inline-flex mt-3 text-xs text-slate-500">{item.status}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-800 mb-1">Branding de cotizaciones</h3>
-                    <p className="text-sm text-gray-600">
-                      Personalizá tus PDFs con tu marca, logo y color principal.
-                    </p>
-                    <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
-                  </div>
-                </div>
+                ))}
               </div>
+            </div>
 
-              {[
-                {
-                  title: "Exportar cotizaciones",
-                  description: "Descarga presupuestos en PDF o Excel listos para clientes.",
-                },
-                {
-                  title: "Historial ilimitado",
-                  description: "Guarda versiones y evoluciona tus precios sin límites.",
-                },
-                {
-                  title: "Comparador de escenarios",
-                  description: "Compara materiales, tiempos y márgenes antes de decidir.",
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  title="Disponible en versión PRO"
-                  className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
-                >
-                  <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
-                    PRO
-                  </span>
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 text-slate-400">
-                      <Lock size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h3>
-                      <p className="text-sm text-gray-600">{item.description}</p>
-                      <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Control del negocio</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  {
+                    title: "Análisis de rentabilidad",
+                    description: "Saber cuánto ganás realmente por producto.",
+                    bullets: ["Ganancia neta y margen real", "Ranking por ganancia y por margen"],
+                    status: SHOW_PROFITABILITY_SECTION ? "Disponible en PRO" : "En desarrollo",
+                  },
+                  {
+                    title: "Historial ilimitado",
+                    description: "Guardá todo tu historial sin límites.",
+                    bullets: ["Productos ilimitados", "Reutilizá cotizaciones y versiones"],
+                    status: "Disponible en PRO",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.title}
+                    title="Disponible en versión PRO"
+                    className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
+                  >
+                    <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                      PRO
+                    </span>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 text-slate-400">
+                        <Lock size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h4>
+                        <p className="text-sm text-gray-600">{item.description}</p>
+                        <ul className="mt-2 text-xs text-gray-500 space-y-1">
+                          {item.bullets.map((bullet) => (
+                            <li key={bullet}>• {bullet}</li>
+                          ))}
+                        </ul>
+                        <span className="inline-flex mt-3 text-xs text-slate-500">{item.status}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Costos avanzados y decisiones</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  {
+                    title: "Costos fijos y amortización",
+                    description: "Distribuí costos invisibles en tus precios.",
+                    bullets: ["Mantenimiento y desgaste", "Tiempo improductivo y costos fijos"],
+                    status: "En desarrollo",
+                  },
+                  {
+                    title: "Comparador de escenarios",
+                    description: "Compará precios y márgenes antes de decidir.",
+                    bullets: ["Variar material, tiempo y margen", "Elegí la opción más rentable"],
+                    status: "En desarrollo",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.title}
+                    title="Disponible en versión PRO"
+                    className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
+                  >
+                    <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                      PRO
+                    </span>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 text-slate-400">
+                        <Lock size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h4>
+                        <p className="text-sm text-gray-600">{item.description}</p>
+                        <ul className="mt-2 text-xs text-gray-500 space-y-1">
+                          {item.bullets.map((bullet) => (
+                            <li key={bullet}>• {bullet}</li>
+                          ))}
+                        </ul>
+                        <span className="inline-flex mt-3 text-xs text-slate-500">{item.status}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
           </div>
