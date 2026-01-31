@@ -200,6 +200,7 @@ function Dashboard() {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const isCalculatingRef = useRef(false);
+  const lastSavedSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -209,17 +210,40 @@ function Dashboard() {
     localStorage.setItem(CATEGORY_STORAGE_KEY, category.trim() || "General");
   }, [category]);
 
-  const saveToLocalStorage = (newRecords: HistoryRecord[]) => {
-    // Single source of truth: enforce free limit right before persisting history.
-    if (records.length >= FREE_PRODUCT_LIMIT && newRecords.length > records.length) {
+  const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
+    JSON.stringify({
+      name: toyName.trim() || "Sin nombre",
+      category: category.trim() || "General",
+      inputs,
+      params: paramsSnapshot,
+    });
+
+  const persistHistory = (
+    newRecords: HistoryRecord[],
+    options?: {
+      signature?: string;
+      allowDuplicateSignature?: boolean;
+    }
+  ) => {
+    // Single source of truth: history persistence + free-limit checks live only here.
+    const isGrowing = newRecords.length > records.length;
+    if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
       alert(
         "Has alcanzado el límite de 3 productos en la versión gratuita. Accede a Costly3D completo para guardar más.",
       );
       return;
     }
+    if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
+      if (options.signature === lastSavedSignatureRef.current) {
+        return;
+      }
+    }
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newRecords));
     localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(buildStockMap(newRecords)));
     setRecords(newRecords);
+    if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
+      lastSavedSignatureRef.current = options.signature;
+    }
   };
 
   const getInputs = () => {
@@ -283,13 +307,14 @@ function Dashboard() {
         };
       });
       if (updated) {
-        saveToLocalStorage(nextRecords);
+        persistHistory(nextRecords);
         return;
       }
     }
 
     const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
-    saveToLocalStorage([newRecord, ...records]);
+    const signature = buildRecordSignature(inputs, paramsSnapshot);
+    persistHistory([newRecord, ...records], { signature });
     setEditingRecordId(null);
   };
 
@@ -366,7 +391,7 @@ function Dashboard() {
 
   const deleteHistory = () => {
     if (confirm("¿Estás seguro de borrar todo el historial?")) {
-      saveToLocalStorage([]);
+      persistHistory([]);
       setEditingRecordId(null);
     }
   };
@@ -462,13 +487,13 @@ function Dashboard() {
       status: "draft",
       stockChanges: [],
     };
-    saveToLocalStorage([duplicated, ...records]);
+    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
   };
 
   const deleteRecord = (record: HistoryRecord) => {
     if (!confirm("¿Eliminar este producto del historial?")) return;
     const nextRecords = records.filter((item) => item.id !== record.id);
-    saveToLocalStorage(nextRecords);
+    persistHistory(nextRecords);
     if (editingRecordId === record.id) {
       clearFields();
     }
@@ -506,7 +531,7 @@ function Dashboard() {
       };
     });
 
-    saveToLocalStorage(nextRecords);
+    persistHistory(nextRecords);
   };
 
   const totalToys = records.length;
