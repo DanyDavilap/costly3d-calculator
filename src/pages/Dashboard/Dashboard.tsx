@@ -61,6 +61,7 @@ const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const FREE_PRODUCT_LIMIT = 3;
 const IS_PRO_SANDBOX = false;
 const BRAND_COLOR = { r: 91, g: 157, b: 255 };
+const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
 
 const DEFAULT_PARAMS: PricingParams = {
   filamentCostPerKg: 30000,
@@ -216,7 +217,6 @@ function Dashboard() {
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
-  const freeLimitTrackedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -227,15 +227,22 @@ function Dashboard() {
   }, [category]);
 
   useEffect(() => {
-    if (isProModalOpen && !freeLimitTrackedRef.current) {
-      if (import.meta.env.DEV) {
-        debugTrack("free_limit_reached", { source: "free_limit_modal" });
-      }
-      track("free_limit_reached", { source: "free_limit_modal" });
-      freeLimitTrackedRef.current = true;
+    if (!isProModalOpen) return;
+    let alreadyTracked = false;
+    try {
+      alreadyTracked = sessionStorage.getItem(FREE_LIMIT_EVENT_KEY) === "1";
+    } catch (error) {
+      alreadyTracked = false;
     }
-    if (!isProModalOpen) {
-      freeLimitTrackedRef.current = false;
+    if (alreadyTracked) return;
+    if (import.meta.env.DEV) {
+      debugTrack("free_limit_reached", { source: "free_limit_modal" });
+    }
+    track("free_limit_reached", { source: "free_limit_modal" });
+    try {
+      sessionStorage.setItem(FREE_LIMIT_EVENT_KEY, "1");
+    } catch (error) {
+      // Ignore storage errors to avoid blocking the flow.
     }
   }, [isProModalOpen]);
 
@@ -314,6 +321,17 @@ function Dashboard() {
       stored.push(email);
       localStorage.setItem(key, JSON.stringify(stored));
     }
+
+    void fetch("https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/formResponse", {
+      method: "POST",
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        "entry.1838115511": email,
+      }),
+    });
 
     const domain = email.split("@")[1]?.toLowerCase() || "unknown";
     if (import.meta.env.DEV) {
