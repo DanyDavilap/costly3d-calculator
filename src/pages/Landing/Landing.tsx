@@ -39,8 +39,8 @@ export default function Landing({ onStart }: LandingProps) {
               <p className="eyebrow">Para makers, talleres y negocios de impresión 3D.</p>
               <h1>Deja de adivinar precios en impresión 3D.</h1>
               <p className="lead">
-                Calcula costos reales de material, energía y tiempo para poner precios rentables en tus productos 3D,
-                con márgenes claros y repetibles.
+                Calcula costos reales de material, energía y tiempo para poner precios rentables, con márgenes claros y
+                fáciles de repetir.
               </p>
               <div className="hero-actions">
                 <button type="button" className="btn primary" onClick={onStart}>
@@ -85,7 +85,7 @@ export default function Landing({ onStart }: LandingProps) {
           <section id="features" className="section">
             <div className="section-title">
               <h2>Funciones principales</h2>
-              <p>Todo lo esencial para calcular costos de impresión 3D en un solo flujo.</p>
+              <p>Todo lo esencial para calcular costos de impresión 3D, sin hojas de cálculo ni suposiciones.</p>
             </div>
             <div className="grid three">
               <article className="card feature">
@@ -107,6 +107,7 @@ export default function Landing({ onStart }: LandingProps) {
             <div className="section-title">
               <h2>Lo que Costly3D puede hacer cuando tu negocio crece</h2>
               <p>Diseñado para makers que dejan de improvisar y empiezan a escalar.</p>
+              <p>Cuando dejás de improvisar y empezás a escalar, necesitás control real sobre tus costos.</p>
             </div>
             <div className="pro-grid">
               <article className="card pro-card">
@@ -114,14 +115,14 @@ export default function Landing({ onStart }: LandingProps) {
                   <img src={rentabilidadImg} alt="Captura de desglose de costos y total sugerido" />
                 </div>
                 <h3>Rentabilidad real</h3>
-                <p>Entiende cuánto ganas realmente por cada producto, no solo el precio final.</p>
+                <p>Entiende cuánto ganás realmente por cada producto, no solo el precio final.</p>
               </article>
               <article className="card pro-card">
                 <div className="pro-image">
                   <img src={costosFijosImg} alt="Vista de inputs de cálculo de costos fijos" />
                 </div>
                 <h3>Costos fijos distribuidos</h3>
-                <p>Costly3D considera gastos invisibles como mantenimiento y tiempo improductivo.</p>
+                <p>Costly3D tiene en cuenta gastos invisibles como mantenimiento, desgaste y tiempo improductivo.</p>
               </article>
               <article className="card pro-card">
                 <div className="pro-image">
@@ -162,7 +163,7 @@ export default function Landing({ onStart }: LandingProps) {
                   <li>Historial completo de cotizaciones</li>
                   <li>Exportar cotizaciones profesionales</li>
                   <li>Desglose interno avanzado</li>
-                  <li>Preparado para clientes</li>
+                  <li>Documentos listos para enviar a clientes</li>
                 </ul>
                 <button
                   type="button"
@@ -223,7 +224,7 @@ export default function Landing({ onStart }: LandingProps) {
           <section id="cta" className="cta card">
             <div>
               <h2>Empieza a calcular tus costos 3D con claridad.</h2>
-              <p>Accede a la calculadora y valida tus precios con una base consistente y profesional.</p>
+              <p>Accede a la calculadora y empezá a validar tus precios con una base profesional desde hoy.</p>
             </div>
             <div className="cta-actions">
               <button type="button" className="btn primary" onClick={onStart}>

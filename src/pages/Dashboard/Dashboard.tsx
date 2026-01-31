@@ -1,5 +1,5 @@
 ﻿
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
@@ -30,6 +30,7 @@ import {
   PricingInputs,
   PricingParams,
 } from "../../utils/pricingCalculator";
+import { calculateProfitability } from "../../utils/profitability";
 import {
   createPdfTheme,
   formatDate,
@@ -69,7 +70,9 @@ const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const FREE_PRODUCT_LIMIT = 3;
-const IS_PRO_SANDBOX = false;
+const IS_PRO_SANDBOX = true;
+const SHOW_PROFITABILITY_SECTION = false;
+const BRANDING_DEMO_LOCK = true;
 const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
 const MONTH_NAMES = [
   "enero",
@@ -278,6 +281,79 @@ function Dashboard() {
   }, [isProModalOpen]);
 
   const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
+
+  const profitability = useMemo(() => calculateProfitability(records), [records]);
+  const hasProfitabilityData = profitability.entries.length > 0;
+  const isProEnabled = IS_PRO_SANDBOX;
+  const isBrandingEnabled = IS_PRO_SANDBOX && !BRANDING_DEMO_LOCK;
+  const previewTopByProfit =
+    profitability.topByProfit.length > 0
+      ? profitability.topByProfit
+      : [
+          { key: "preview-profit-1", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+          { key: "preview-profit-2", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+          { key: "preview-profit-3", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+        ];
+  const previewTopByMargin =
+    profitability.topByMargin.length > 0
+      ? profitability.topByMargin
+      : [
+          { key: "preview-margin-1", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+          { key: "preview-margin-2", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+          { key: "preview-margin-3", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
+        ];
+  const previewRecentQuotes =
+    profitability.recentQuotes.length > 0
+      ? profitability.recentQuotes
+      : [
+          {
+            id: "preview-quote-1",
+            date: "—",
+            productName: "—",
+            category: "—",
+            revenue: 0,
+            cost: 0,
+            profit: 0,
+            margin: 0,
+            timestamp: 0,
+          },
+          {
+            id: "preview-quote-2",
+            date: "—",
+            productName: "—",
+            category: "—",
+            revenue: 0,
+            cost: 0,
+            profit: 0,
+            margin: 0,
+            timestamp: 0,
+          },
+          {
+            id: "preview-quote-3",
+            date: "—",
+            productName: "—",
+            category: "—",
+            revenue: 0,
+            cost: 0,
+            profit: 0,
+            margin: 0,
+            timestamp: 0,
+          },
+        ];
+
+  const formatPercent = (value: number) => (Number.isFinite(value) ? `${value.toFixed(1)}%` : "0%");
+
+  const openProBetaForm = () => {
+    if (import.meta.env.DEV) {
+      debugTrack("pro_cta_click", { source: "free_limit_modal" });
+    }
+    track("pro_cta_click", { source: "free_limit_modal" });
+    window.open(
+      "https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/viewform",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
 
   const updateBrandField = <K extends keyof BrandSettings>(key: K, value: BrandSettings[K]) => {
     setBrand((prev) => ({ ...prev, [key]: value }));
@@ -1647,6 +1723,148 @@ function Dashboard() {
           )}
         </AnimatePresence>
 
+        {SHOW_PROFITABILITY_SECTION && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Análisis de rentabilidad</h2>
+                  <p className="text-sm text-gray-600">Basado en tu historial. No tenés que cargar nada de nuevo.</p>
+                </div>
+                <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">PRO</span>
+              </div>
+
+              {isProEnabled && !hasProfitabilityData ? (
+                <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-6 text-center text-sm text-gray-500">
+                  Guardá tu primera cotización para ver el análisis.
+                </div>
+              ) : (
+                <div className={`mt-6 space-y-6 ${isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Ganancia total</p>
+                      <p className="mt-2 text-2xl font-bold text-gray-800">
+                        {isProEnabled ? formatCurrency(profitability.totalProfit) : "—"}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Margen promedio</p>
+                      <p className="mt-2 text-2xl font-bold text-gray-800">
+                        {isProEnabled ? formatPercent(profitability.averageMargin) : "—"}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Producto más rentable</p>
+                      <p className="mt-2 text-lg font-semibold text-gray-800">
+                        {isProEnabled ? profitability.mostProfitable?.productName || "—" : "—"}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {isProEnabled && profitability.mostProfitable
+                          ? formatCurrency(profitability.mostProfitable.profit)
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por ganancia</h3>
+                      <div className="space-y-3 text-sm">
+                        {(isProEnabled ? profitability.topByProfit : previewTopByProfit).map((item) => (
+                          <div key={item.key} className="flex items-center justify-between">
+                            <div>
+                              <p className="font-semibold text-gray-800">{item.productName}</p>
+                              <p className="text-xs text-gray-500">{item.category}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold text-gray-800">
+                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {isProEnabled ? formatPercent(item.margin) : "—"}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por margen</h3>
+                      <div className="space-y-3 text-sm">
+                        {(isProEnabled ? profitability.topByMargin : previewTopByMargin).map((item) => (
+                          <div key={item.key} className="flex items-center justify-between">
+                            <div>
+                              <p className="font-semibold text-gray-800">{item.productName}</p>
+                              <p className="text-xs text-gray-500">{item.category}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold text-gray-800">
+                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {isProEnabled ? formatPercent(item.margin) : "—"}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3">Últimas cotizaciones</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                            <th className="py-2">Fecha</th>
+                            <th className="py-2">Producto</th>
+                            <th className="py-2">Categoría</th>
+                            <th className="py-2 text-right">Total</th>
+                            <th className="py-2 text-right">Ganancia</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(isProEnabled ? profitability.recentQuotes : previewRecentQuotes).map((item) => (
+                            <tr key={item.id} className="border-t border-gray-200">
+                              <td className="py-2 text-gray-600">{item.date}</td>
+                              <td className="py-2 font-semibold text-gray-800">{item.productName}</td>
+                              <td className="py-2 text-gray-600">{item.category}</td>
+                              <td className="py-2 text-right text-gray-700">
+                                {isProEnabled ? formatCurrency(item.revenue) : "—"}
+                              </td>
+                              <td className="py-2 text-right text-gray-700">
+                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!isProEnabled && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                  <div className="text-center px-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Desbloqueá el análisis completo con Costly3D PRO.
+                    </p>
+                    <button
+                      type="button"
+                      className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                      onClick={openProBetaForm}
+                    >
+                      Acceso anticipado PRO
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         <section className="max-w-5xl mx-auto mt-10">
           <div className="bg-white rounded-3xl shadow-2xl p-8">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -1663,6 +1881,47 @@ function Dashboard() {
                   title: "Costos fijos y amortización",
                   description: "Distribuye alquiler, mantenimiento y desgaste de máquina.",
                 },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  title="Disponible en versión PRO"
+                  className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60"
+                >
+                  <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                    PRO
+                  </span>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1 text-slate-400">
+                      <Lock size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-1">{item.title}</h3>
+                      <p className="text-sm text-gray-600">{item.description}</p>
+                      <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="relative rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-5 opacity-60">
+                <span className="absolute right-4 top-4 bg-slate-900 text-white text-[10px] font-semibold px-2 py-1 rounded-full">
+                  PRO
+                </span>
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 text-slate-400">
+                    <Lock size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-800 mb-1">Branding de cotizaciones</h3>
+                    <p className="text-sm text-gray-600">
+                      Personalizá tus PDFs con tu marca, logo y color principal.
+                    </p>
+                    <span className="inline-flex mt-3 text-xs text-slate-500">Disponible en versión PRO</span>
+                  </div>
+                </div>
+              </div>
+
+              {[
                 {
                   title: "Exportar cotizaciones",
                   description: "Descarga presupuestos en PDF o Excel listos para clientes.",
@@ -1697,79 +1956,7 @@ function Dashboard() {
                 </div>
               ))}
             </div>
-          </div>
-        </section>
 
-        <section className="max-w-5xl mx-auto mt-10">
-          <div className="bg-white rounded-3xl shadow-2xl p-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <h2 className="text-2xl font-bold text-gray-800">Branding de cotizaciones</h2>
-              <span className="bg-blue-100 text-blue-600 text-xs font-semibold px-3 py-1 rounded-full">Marca</span>
-            </div>
-            <div className="grid md:grid-cols-2 gap-5">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre de marca</label>
-                <input
-                  type="text"
-                  value={brand.name}
-                  onChange={(event) => updateBrandField("name", event.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Color principal</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={brand.primaryColor}
-                    onChange={(event) => updateBrandField("primaryColor", event.target.value)}
-                    className="h-12 w-14 rounded-lg border border-gray-200 p-1"
-                  />
-                  <input
-                    type="text"
-                    value={brand.primaryColor}
-                    onChange={(event) => updateBrandField("primaryColor", event.target.value)}
-                    className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Texto de pie</label>
-                <input
-                  type="text"
-                  value={brand.footerText}
-                  onChange={(event) => updateBrandField("footerText", event.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Logo (PNG/JPG)</label>
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="h-16 w-28 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
-                    {brand.logoDataUrl ? (
-                      <img src={brand.logoDataUrl} alt="Logo de marca" className="h-full w-full object-contain" />
-                    ) : (
-                      <span className="text-xs text-gray-400">Sin logo</span>
-                    )}
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/png, image/jpeg"
-                    onChange={handleLogoUpload}
-                    className="text-sm text-gray-600"
-                  />
-                  {brand.logoDataUrl && (
-                    <button
-                      type="button"
-                      onClick={() => updateBrandField("logoDataUrl", "")}
-                      className="text-sm text-red-500 hover:text-red-600"
-                    >
-                      Quitar logo
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         </section>
       </div>
@@ -1892,15 +2079,7 @@ function Dashboard() {
                     type="button"
                     className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
                     onClick={() => {
-                      if (import.meta.env.DEV) {
-                        debugTrack("pro_cta_click", { source: "free_limit_modal" });
-                      }
-                      track("pro_cta_click", { source: "free_limit_modal" });
-                      window.open(
-                        "https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/viewform",
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
+                      openProBetaForm();
                     }}
                   >
                     Quiero acceso PRO
