@@ -298,65 +298,6 @@ function Dashboard() {
     setIsWaitlistOpen(true);
   };
 
-  const submitWaitlistEmail = () => {
-    const email = waitlistEmail.trim();
-    if (!email.includes("@")) return;
-
-    console.log("PRO_WAITLIST_SUBMIT", email);
-    const key = "costly3d_pro_waitlist";
-    let stored: string[] = [];
-    try {
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) {
-        stored = parsed;
-      } else if (typeof parsed === "string" && parsed) {
-        stored = [parsed];
-      }
-    } catch (error) {
-      stored = [];
-    }
-
-    if (!stored.includes(email)) {
-      stored.push(email);
-      localStorage.setItem(key, JSON.stringify(stored));
-    }
-
-    void fetch("https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/formResponse", {
-      method: "POST",
-      mode: "no-cors",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        "entry.1838115511": email,
-      }),
-    });
-
-    const domain = email.split("@")[1]?.toLowerCase() || "unknown";
-    if (import.meta.env.DEV) {
-      debugTrack("pro_email_submitted", {
-        source: "free_limit_modal",
-        has_email: true,
-        email_domain: domain,
-      });
-    }
-    track("pro_email_submitted", {
-      source: "free_limit_modal",
-      has_email: true,
-      email_domain: domain,
-    });
-    console.log("PRO_WAITLIST_SUCCESS");
-    setWaitlistSuccess(true);
-
-    if (waitlistTimerRef.current) {
-      window.clearTimeout(waitlistTimerRef.current);
-    }
-    waitlistTimerRef.current = window.setTimeout(() => {
-      closeWaitlistModal();
-    }, 2000);
-  };
-
   const buildPdfDataFromResult = () => {
     if (!result) return null;
     const productName = toyName || "Producto";
@@ -1587,10 +1528,6 @@ function Dashboard() {
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
                 onClick={() => {
                   console.log("CTA_PRO_CLICK");
-                  if (import.meta.env.DEV) {
-                    debugTrack("pro_cta_click", { source: "free_limit_modal" });
-                  }
-                  track("pro_cta_click", { source: "free_limit_modal" });
                   setIsProModalOpen(false);
                   openWaitlistModal();
                 }}
@@ -1658,7 +1595,17 @@ function Dashboard() {
                   <button
                     type="button"
                     className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                    onClick={submitWaitlistEmail}
+                    onClick={() => {
+                      if (import.meta.env.DEV) {
+                        debugTrack("pro_cta_click", { source: "free_limit_modal" });
+                      }
+                      track("pro_cta_click", { source: "free_limit_modal" });
+                      window.open(
+                        "https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/viewform",
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
                   >
                     Quiero acceso PRO
                   </button>
@@ -1670,6 +1617,9 @@ function Dashboard() {
                     Seguir probando (solo lectura)
                   </button>
                 </div>
+                <p className="mt-3 text-xs text-gray-500">
+                  Estamos en beta. El acceso se habilita a partir de este formulario.
+                </p>
                 <p className="mt-4 text-xs text-gray-500">
                   No enviamos spam. Te avisaremos cuando PRO esté disponible.
                 </p>
