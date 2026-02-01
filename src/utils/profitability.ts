@@ -63,7 +63,8 @@ const parseRecordDate = (value: string) => {
   return Number.isNaN(fallback.getTime()) ? null : fallback;
 };
 
-const safeNumber = (value: number | undefined) => (Number.isFinite(value) ? value : 0);
+const safeNumber = (value: number | undefined) =>
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
 
 export const calculateProfitability = (records: ProfitabilityRecordInput[]): ProfitabilitySummary => {
   const entries: ProfitabilityEntry[] = records.map((record) => {

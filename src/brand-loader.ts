@@ -25,6 +25,7 @@ export function applyBrandTheme(brandKey?: string) {
 }
 
 function resolveBrand(key: string): BrandConfig {
+  void key;
   return defaultBrand;
 }
 

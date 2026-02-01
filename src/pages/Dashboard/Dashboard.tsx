@@ -1,6 +1,5 @@
 ﻿
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
 import { track } from "@vercel/analytics";
@@ -51,6 +50,8 @@ interface HistoryRecord {
   params: PricingParams;
   breakdown: PricingBreakdown;
   total: number;
+  selectedMaterialId?: string;
+  materialGramsUsed?: number;
   quantity: number;
   status: "draft" | "sold";
   stockChanges: StockChange[];
@@ -65,14 +66,24 @@ interface StockChange {
   type: "sale" | "restock";
 }
 
+interface MaterialSpool {
+  id: string;
+  name: string;
+  brand: string;
+  materialType: string;
+  color: string;
+  gramsAvailable: number;
+  costPerKg?: number;
+}
+
 const PARAMS_STORAGE_KEY = "calculatorBaseParams";
 const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
+const MATERIAL_STOCK_KEY = "materialStock";
 const FREE_PRODUCT_LIMIT = 3;
 const IS_PRO_SANDBOX = true;
 const SHOW_PROFITABILITY_SECTION = false;
-const BRANDING_DEMO_LOCK = true;
 const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
 const MONTH_NAMES = [
   "enero",
@@ -166,6 +177,10 @@ const normalizeHistoryRecord = (
 
   const normalizedCategory =
     typeof raw.category === "string" && raw.category.trim().length > 0 ? raw.category : "General";
+  const materialGramsUsed =
+    typeof raw.materialGramsUsed === "number" && Number.isFinite(raw.materialGramsUsed)
+      ? raw.materialGramsUsed
+      : inputs.materialGrams * quantity;
 
   return {
     id: raw.id ?? Date.now().toString(),
@@ -177,6 +192,8 @@ const normalizeHistoryRecord = (
     params,
     breakdown,
     total: typeof raw.total === "number" ? raw.total : breakdown.finalPrice,
+    selectedMaterialId: raw.selectedMaterialId ?? "",
+    materialGramsUsed,
     quantity,
     status,
     stockChanges,
@@ -196,6 +213,29 @@ const loadStoredRecords = (fallbackParams: PricingParams): HistoryRecord[] => {
       .filter((record): record is HistoryRecord => Boolean(record));
   } catch (error) {
     console.error("No se pudo cargar el historial", error);
+    return [];
+  }
+};
+
+const loadMaterialStock = (): MaterialSpool[] => {
+  if (typeof window === "undefined") return [];
+  const saved = localStorage.getItem(MATERIAL_STOCK_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((spool) => ({
+        id: String(spool.id ?? Date.now().toString()),
+        name: String(spool.name ?? ""),
+        brand: String(spool.brand ?? ""),
+        materialType: String(spool.materialType ?? ""),
+        color: String(spool.color ?? ""),
+        gramsAvailable: Number.isFinite(spool.gramsAvailable) ? Number(spool.gramsAvailable) : 0,
+        costPerKg: Number.isFinite(spool.costPerKg) ? Number(spool.costPerKg) : undefined,
+      }))
+      .filter((spool) => Boolean(spool.name));
+  } catch (error) {
     return [];
   }
 };
@@ -231,6 +271,9 @@ function Dashboard() {
   const [assemblyHours, setAssemblyHours] = useState("");
   const [assemblyMinutes, setAssemblyMinutes] = useState("");
   const [materialWeight, setMaterialWeight] = useState("");
+  const [selectedMaterialId, setSelectedMaterialId] = useState("");
+  const [stockError, setStockError] = useState("");
+  const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
   const [params, setParams] = useState<PricingParams>(loadStoredParams);
 
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -243,10 +286,22 @@ function Dashboard() {
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
-  const [brand, setBrand] = useState<BrandSettings>(() => loadBrandSettings());
+  const [brand] = useState<BrandSettings>(() => loadBrandSettings());
   const now = new Date();
   const [reportMonth, setReportMonth] = useState(now.getMonth());
   const [reportYear, setReportYear] = useState(now.getFullYear());
+  const [stockForm, setStockForm] = useState({
+    id: "",
+    name: "",
+    brand: "",
+    materialType: "",
+    color: "",
+    gramsAvailable: "",
+    costPerKg: "",
+  });
+  const [adjustTargetId, setAdjustTargetId] = useState("");
+  const [adjustGrams, setAdjustGrams] = useState("");
+  const [stockNotice, setStockNotice] = useState("");
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -259,6 +314,11 @@ function Dashboard() {
   useEffect(() => {
     saveBrandSettings(brand);
   }, [brand]);
+
+  const persistMaterialStock = (nextStock: MaterialSpool[]) => {
+    localStorage.setItem(MATERIAL_STOCK_KEY, JSON.stringify(nextStock));
+    setMaterialStock(nextStock);
+  };
 
   useEffect(() => {
     if (!isProModalOpen) return;
@@ -285,7 +345,6 @@ function Dashboard() {
   const profitability = useMemo(() => calculateProfitability(records), [records]);
   const hasProfitabilityData = profitability.entries.length > 0;
   const isProEnabled = IS_PRO_SANDBOX;
-  const isBrandingEnabled = IS_PRO_SANDBOX && !BRANDING_DEMO_LOCK;
   const previewTopByProfit =
     profitability.topByProfit.length > 0
       ? profitability.topByProfit
@@ -355,26 +414,94 @@ function Dashboard() {
     );
   };
 
-  const updateBrandField = <K extends keyof BrandSettings>(key: K, value: BrandSettings[K]) => {
-    setBrand((prev) => ({ ...prev, [key]: value }));
+  const resetStockForm = () => {
+    setStockForm({
+      id: "",
+      name: "",
+      brand: "",
+      materialType: "",
+      color: "",
+      gramsAvailable: "",
+      costPerKg: "",
+    });
   };
 
-  const handleLogoUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateBrandField("logoDataUrl", reader.result);
-      }
+  const handleSaveSpool = () => {
+    const grams = Number.parseFloat(stockForm.gramsAvailable);
+    if (!stockForm.name.trim() || !Number.isFinite(grams) || grams < 0) {
+      setStockNotice("Ingresá un nombre y gramos disponibles válidos.");
+      return;
+    }
+    const costPerKg = Number.parseFloat(stockForm.costPerKg);
+    const nextSpool: MaterialSpool = {
+      id: stockForm.id || Date.now().toString(),
+      name: stockForm.name.trim(),
+      brand: stockForm.brand.trim(),
+      materialType: stockForm.materialType.trim(),
+      color: stockForm.color.trim(),
+      gramsAvailable: grams,
+      costPerKg: Number.isFinite(costPerKg) ? costPerKg : undefined,
     };
-    reader.readAsDataURL(file);
+    const nextStock = stockForm.id
+      ? materialStock.map((spool) => (spool.id === stockForm.id ? nextSpool : spool))
+      : [nextSpool, ...materialStock];
+    persistMaterialStock(nextStock);
+    resetStockForm();
+    setStockNotice("");
+  };
+
+  const handleEditSpool = (spool: MaterialSpool) => {
+    setStockForm({
+      id: spool.id,
+      name: spool.name,
+      brand: spool.brand,
+      materialType: spool.materialType,
+      color: spool.color,
+      gramsAvailable: spool.gramsAvailable.toString(),
+      costPerKg: spool.costPerKg?.toString() ?? "",
+    });
+  };
+
+  const handleAdjustStock = (direction: "add" | "subtract") => {
+    const target = materialStock.find((spool) => spool.id === adjustTargetId);
+    const grams = Number.parseFloat(adjustGrams);
+    if (!target || !Number.isFinite(grams) || grams <= 0) {
+      setStockNotice("Seleccioná un spool y un gramaje válido.");
+      return;
+    }
+    const delta = direction === "add" ? grams : -grams;
+    const nextValue = target.gramsAvailable + delta;
+    if (nextValue < 0) {
+      setStockNotice(
+        `No podés dejar el stock en negativo. Disponible ${target.gramsAvailable}g.`,
+      );
+      return;
+    }
+    const nextStock = materialStock.map((spool) =>
+      spool.id === target.id ? { ...spool, gramsAvailable: nextValue } : spool,
+    );
+    persistMaterialStock(nextStock);
+    setAdjustGrams("");
+    setStockNotice("");
+  };
+
+  const restoreMaterialStock = (record: HistoryRecord) => {
+    if (!record.selectedMaterialId || !record.materialGramsUsed) return;
+    const target = materialStock.find((spool) => spool.id === record.selectedMaterialId);
+    if (!target) return;
+    const nextStock = materialStock.map((spool) =>
+      spool.id === target.id
+        ? { ...spool, gramsAvailable: spool.gramsAvailable + record.materialGramsUsed! }
+        : spool,
+    );
+    persistMaterialStock(nextStock);
   };
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
     JSON.stringify({
       name: toyName.trim() || "Sin nombre",
       category: category.trim() || "General",
+      materialId: selectedMaterialId || "",
       inputs,
       params: paramsSnapshot,
     });
@@ -385,17 +512,17 @@ function Dashboard() {
       signature?: string;
       allowDuplicateSignature?: boolean;
     }
-  ) => {
+  ): boolean => {
     // Single source of truth: history persistence + free-limit checks live only here.
     const isGrowing = newRecords.length > records.length;
     if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
       // Mostrar modal PRO cuando el límite FREE impide guardar un nuevo producto.
       setIsProModalOpen(true);
-      return;
+      return false;
     }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
       if (options.signature === lastSavedSignatureRef.current) {
-        return;
+        return false;
       }
     }
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newRecords));
@@ -404,6 +531,7 @@ function Dashboard() {
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
       lastSavedSignatureRef.current = options.signature;
     }
+    return true;
   };
 
   const closeWaitlistModal = () => {
@@ -710,6 +838,8 @@ function Dashboard() {
     params: paramsSnapshot,
     breakdown,
     total: breakdown.finalPrice,
+    selectedMaterialId: selectedMaterialId || "",
+    materialGramsUsed: selectedMaterialId ? inputs.materialGrams * 1 : 0,
     quantity: 1,
     status: "draft",
     stockChanges: [],
@@ -725,7 +855,7 @@ function Dashboard() {
     breakdown: PricingBreakdown;
     paramsSnapshot: PricingParams;
     mode: "create" | "update";
-  }) => {
+  }): boolean => {
     if (mode === "update" && editingRecordId) {
       let updated = false;
       const nextRecords = records.map((record) => {
@@ -740,18 +870,42 @@ function Dashboard() {
           params: paramsSnapshot,
           breakdown,
           total: breakdown.finalPrice,
+          selectedMaterialId: selectedMaterialId || record.selectedMaterialId || "",
+          materialGramsUsed:
+            (selectedMaterialId ? inputs.materialGrams : record.materialGramsUsed) ?? record.materialGramsUsed,
         };
       });
       if (updated) {
         persistHistory(nextRecords);
-        return;
+        return true;
+      }
+    }
+
+    const quantity = 1;
+    const materialGramsUsed = inputs.materialGrams * quantity;
+    if (selectedMaterialId && materialGramsUsed > 0) {
+      const spool = materialStock.find((item) => item.id === selectedMaterialId);
+      const available = spool?.gramsAvailable ?? 0;
+      if (!spool || available < materialGramsUsed) {
+        setStockError(`No hay suficiente filamento: disponible ${available}g, requerido ${materialGramsUsed}g`);
+        return false;
       }
     }
 
     const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
     const signature = buildRecordSignature(inputs, paramsSnapshot);
-    persistHistory([newRecord, ...records], { signature });
+    const saved = persistHistory([newRecord, ...records], { signature });
+    if (saved && selectedMaterialId && materialGramsUsed > 0) {
+      const nextStock = materialStock.map((spool) =>
+        spool.id === selectedMaterialId
+          ? { ...spool, gramsAvailable: spool.gramsAvailable - materialGramsUsed }
+          : spool,
+      );
+      persistMaterialStock(nextStock);
+      setStockError("");
+    }
     setEditingRecordId(null);
+    return saved;
   };
 
   const calculatePrice = () => {
@@ -803,13 +957,13 @@ function Dashboard() {
     const breakdown = pricingCalculator({ inputs, params });
     if (!isValidBreakdown(breakdown)) return;
     setResult({ timeMinutes: inputs.timeMinutes, materialGrams: inputs.materialGrams, breakdown });
-    saveCalculation({
+    const saved = saveCalculation({
       inputs,
       breakdown,
       paramsSnapshot: params,
       mode: editingRecordId ? "update" : "create",
     });
-    if (!editingRecordId) {
+    if (saved && !editingRecordId) {
       clearFields();
     }
   };
@@ -821,6 +975,8 @@ function Dashboard() {
     setAssemblyHours("");
     setAssemblyMinutes("");
     setMaterialWeight("");
+    setSelectedMaterialId("");
+    setStockError("");
     setResult(null);
     setEditingRecordId(null);
   };
@@ -922,6 +1078,8 @@ function Dashboard() {
     setAssemblyHours(toFixedString(Math.floor(record.inputs.assemblyMinutes / 60)));
     setAssemblyMinutes(toFixedString(Math.round(record.inputs.assemblyMinutes % 60)));
     setMaterialWeight(toFixedString(record.inputs.materialGrams));
+    setSelectedMaterialId(record.selectedMaterialId ?? "");
+    setStockError("");
     setParams(record.params);
     setResult({
       timeMinutes: record.inputs.timeMinutes,
@@ -933,19 +1091,41 @@ function Dashboard() {
   };
 
   const duplicateRecord = (record: HistoryRecord) => {
+    const materialGramsUsed =
+      typeof record.materialGramsUsed === "number" && Number.isFinite(record.materialGramsUsed)
+        ? record.materialGramsUsed
+        : (record.inputs?.materialGrams ?? 0) * (record.quantity || 1);
+    if (record.selectedMaterialId && materialGramsUsed > 0) {
+      const spool = materialStock.find((item) => item.id === record.selectedMaterialId);
+      const available = spool?.gramsAvailable ?? 0;
+      if (!spool || available < materialGramsUsed) {
+        alert(`No hay suficiente filamento: disponible ${available}g, requerido ${materialGramsUsed}g`);
+        return;
+      }
+    }
     const duplicated: HistoryRecord = {
       ...record,
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       status: "draft",
       stockChanges: [],
+      materialGramsUsed,
     };
-    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    const saved = persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    if (saved && record.selectedMaterialId && materialGramsUsed > 0) {
+      const nextStock = materialStock.map((spool) =>
+        spool.id === record.selectedMaterialId
+          ? { ...spool, gramsAvailable: spool.gramsAvailable - materialGramsUsed }
+          : spool,
+      );
+      persistMaterialStock(nextStock);
+    }
   };
 
   const deleteRecord = (record: HistoryRecord) => {
     if (!confirm("¿Eliminar este producto del historial?")) return;
     const nextRecords = records.filter((item) => item.id !== record.id);
+    restoreMaterialStock(record);
     persistHistory(nextRecords);
     if (editingRecordId === record.id) {
       clearFields();
@@ -957,6 +1137,7 @@ function Dashboard() {
     const key = getProductKey(record.name, record.category);
     const currentStock = stockMap[key] ?? 0;
     const nextSold = record.status !== "sold";
+    const nextStatus: HistoryRecord["status"] = nextSold ? "sold" : "draft";
     const change = nextSold ? -record.quantity : record.quantity;
     const nextStock = currentStock + change;
 
@@ -979,7 +1160,7 @@ function Dashboard() {
       if (item.id !== record.id) return item;
       return {
         ...item,
-        status: nextSold ? "sold" : "draft",
+        status: nextStatus,
         stockChanges: [...item.stockChanges, stockChange],
       };
     });
@@ -1180,10 +1361,34 @@ function Dashboard() {
                     <input
                       type="number"
                       value={materialWeight}
-                      onChange={(e) => setMaterialWeight(e.target.value)}
+                      onChange={(e) => {
+                        setMaterialWeight(e.target.value);
+                        setStockError("");
+                      }}
                       placeholder="ej. 142"
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Filamento a usar</label>
+                    <select
+                      value={selectedMaterialId}
+                      onChange={(event) => {
+                        setSelectedMaterialId(event.target.value);
+                        setStockError("");
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
+                    >
+                      <option value="">Sin seleccionar (opcional)</option>
+                      {materialStock.length === 0 && <option value="">No hay spools cargados</option>}
+                      {materialStock.map((spool) => (
+                        <option key={spool.id} value={spool.id}>
+                          {spool.name} · {spool.gramsAvailable}g
+                        </option>
+                      ))}
+                    </select>
+                    {stockError && <p className="text-xs text-red-500 mt-2">{stockError}</p>}
                   </div>
                 </div>
 
@@ -1722,6 +1927,201 @@ function Dashboard() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <section className="max-w-5xl mx-auto mt-10">
+          <div className="bg-white rounded-3xl shadow-2xl p-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Stock de material</h2>
+                <p className="text-sm text-gray-600">Gestioná spools y controlá el gramaje disponible.</p>
+              </div>
+              <button
+                type="button"
+                onClick={resetStockForm}
+                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+              >
+                Agregar spool
+              </button>
+            </div>
+
+            {stockNotice && <p className="text-sm text-red-500 mb-4">{stockNotice}</p>}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-gray-200 text-left">
+                    <th className="py-3 px-4 font-semibold text-gray-700">Nombre</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700">Material</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700">Color</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700">Marca</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700 text-right">Gramos</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {materialStock.length === 0 ? (
+                    <tr>
+                      <td className="py-6 px-4 text-gray-500" colSpan={6}>
+                        No hay spools cargados.
+                      </td>
+                    </tr>
+                  ) : (
+                    materialStock.map((spool) => (
+                      <tr key={spool.id} className="border-b border-gray-100">
+                        <td className="py-3 px-4 font-semibold text-gray-800">{spool.name}</td>
+                        <td className="py-3 px-4 text-gray-600">{spool.materialType || "—"}</td>
+                        <td className="py-3 px-4 text-gray-600">{spool.color || "—"}</td>
+                        <td className="py-3 px-4 text-gray-600">{spool.brand || "—"}</td>
+                        <td className="py-3 px-4 text-right text-gray-700">{spool.gramsAvailable} g</td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleEditSpool(spool)}
+                            className="text-blue-500 hover:text-blue-600 font-semibold text-sm"
+                          >
+                            Editar
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 grid md:grid-cols-2 gap-6">
+              <div className="rounded-2xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-4">
+                  {stockForm.id ? "Editar spool" : "Agregar spool"}
+                </h3>
+                <div className="grid gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre</label>
+                    <input
+                      type="text"
+                      value={stockForm.name}
+                      onChange={(event) => setStockForm((prev) => ({ ...prev, name: event.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Material</label>
+                      <input
+                        type="text"
+                        value={stockForm.materialType}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, materialType: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Color</label>
+                      <input
+                        type="text"
+                        value={stockForm.color}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, color: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Marca</label>
+                      <input
+                        type="text"
+                        value={stockForm.brand}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, brand: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Gramos disponibles</label>
+                      <input
+                        type="number"
+                        value={stockForm.gramsAvailable}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, gramsAvailable: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Costo por kg (opcional)</label>
+                    <input
+                      type="number"
+                      value={stockForm.costPerKg}
+                      onChange={(event) => setStockForm((prev) => ({ ...prev, costPerKg: event.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSaveSpool}
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all font-semibold"
+                    >
+                      Guardar
+                    </button>
+                    {stockForm.id && (
+                      <button
+                        type="button"
+                        onClick={resetStockForm}
+                        className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-all font-semibold"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-4">Ajustar gramos</h3>
+                <div className="grid gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Spool</label>
+                    <select
+                      value={adjustTargetId}
+                      onChange={(event) => setAdjustTargetId(event.target.value)}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                    >
+                      <option value="">Seleccionar spool</option>
+                      {materialStock.map((spool) => (
+                        <option key={spool.id} value={spool.id}>
+                          {spool.name} · {spool.gramsAvailable}g
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Gramos a ajustar</label>
+                    <input
+                      type="number"
+                      value={adjustGrams}
+                      onChange={(event) => setAdjustGrams(event.target.value)}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleAdjustStock("add")}
+                      className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                    >
+                      Sumar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAdjustStock("subtract")}
+                      className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all font-semibold"
+                    >
+                      Restar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {SHOW_PROFITABILITY_SECTION && (
           <section className="max-w-5xl mx-auto mt-10">
