@@ -47,7 +47,7 @@ type PrintStatus = "cotizado" | "confirmado" | "en_produccion" | "finalizado" | 
 
 interface FailureDetails {
   date: string;
-  percentFailed: number;
+  percentPrinted: number;
   gramsLost: number;
   gramsRecovered: number;
   materialCostLost: number;
@@ -73,6 +73,7 @@ interface HistoryRecord {
   quantity: number;
   status: PrintStatus;
   stockDeductedGrams?: number;
+  startedAt?: string | null;
   failure?: FailureDetails | null;
   stockChanges: StockChange[];
 }
@@ -242,13 +243,27 @@ const normalizeHistoryRecord = (
       ? raw.materialGramsUsed
       : inputs.materialGrams * quantity;
 
-  const failure = (raw as HistoryRecord).failure ?? null;
+  const rawFailure = (raw as HistoryRecord).failure ?? null;
+  const failure =
+    rawFailure && typeof rawFailure === "object"
+      ? {
+          ...rawFailure,
+          percentPrinted:
+            typeof (rawFailure as FailureDetails).percentPrinted === "number"
+              ? (rawFailure as FailureDetails).percentPrinted
+              : typeof (rawFailure as unknown as { percentFailed?: number }).percentFailed === "number"
+                ? (rawFailure as unknown as { percentFailed: number }).percentFailed
+                : 0,
+        }
+      : null;
   const stockDeductedGrams =
     typeof (raw as HistoryRecord).stockDeductedGrams === "number"
       ? (raw as HistoryRecord).stockDeductedGrams
-      : status === "confirmado" || status === "en_produccion" || status === "finalizado"
+      : status === "finalizado"
         ? materialGramsUsed
-        : 0;
+        : status === "fallido"
+          ? failure?.gramsLost ?? 0
+          : 0;
 
   return {
     id: raw.id ?? Date.now().toString(),
@@ -268,6 +283,7 @@ const normalizeHistoryRecord = (
     quantity,
     status,
     stockDeductedGrams,
+    startedAt: (raw as HistoryRecord).startedAt ?? null,
     failure,
     stockChanges,
   };
@@ -408,7 +424,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<HistoryRecord | null>(null);
-  const [stockModal, setStockModal] = useState({ open: false, available: 0, required: 0 });
+  const [stockModal, setStockModal] = useState({
+    open: false,
+    available: 0,
+    required: 0,
+    recordId: null as string | null,
+    selectedMaterialId: "",
+    resumeFailure: false,
+  });
   const [isFailureModalOpen, setIsFailureModalOpen] = useState(false);
   const [failureTarget, setFailureTarget] = useState<HistoryRecord | null>(null);
   const [failurePercent, setFailurePercent] = useState(50);
@@ -1071,11 +1094,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
     renderTableHeader();
 
-    monthlyRecords.forEach((record) => {
+    monthlyReportRecords.forEach((record) => {
       ensureSpace(theme.lineGap + 6);
       const parsedDate = parseRecordDate(record.date);
       const dateLabel = parsedDate ? formatDate(parsedDate) : record.date;
-      const totalValue = record.total || record.breakdown.finalPrice;
+      const totalValue = record.status === "fallido" ? 0 : record.total || record.breakdown.finalPrice;
       doc.setFont("helvetica", "normal");
       doc.text(dateLabel, colDate, cursorY);
       doc.text(record.productName || record.name || "Producto", colProduct, cursorY, { maxWidth: 60 });
@@ -1131,6 +1154,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     quantity: 1,
     status: "cotizado",
     stockDeductedGrams: 0,
+    startedAt: null,
     failure: null,
     stockChanges: [],
     };
@@ -1435,8 +1459,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setIsFailureModalOpen(true);
   };
 
-  const closeFailureModal = () => {
+  const closeFailureModal = (options?: { reset?: boolean }) => {
     setIsFailureModalOpen(false);
+    if (options?.reset === false) return;
     setFailureTarget(null);
     setFailureNote("");
   };
@@ -1447,40 +1472,38 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       closeConfirmModal();
       return;
     }
-    const required = getRequiredGramsForRecord(confirmTarget);
-    const spool = confirmTarget.selectedMaterialId
-      ? materialStock.find((item) => item.id === confirmTarget.selectedMaterialId)
-      : undefined;
-    const available = spool?.gramsAvailable ?? 0;
-    const isDemoSpool = Boolean(spool?.isDemo);
-    if (!spool || (!isDemoSpool && required > available)) {
-      closeConfirmModal();
-      setStockModal({ open: true, available, required });
-      return;
-    }
-
-    let deductedGrams = 0;
-    if (!isDemoSpool && spool) {
-      const nextStock = materialStock.map((item) =>
-        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
-      );
-      persistMaterialStock(nextStock);
-      deductedGrams = required;
-    }
-
     const nextRecords = records.map((record) =>
       record.id === confirmTarget.id
-        ? { ...record, status: "confirmado" as const, stockDeductedGrams: deductedGrams }
+        ? { ...record, status: "confirmado" as const, stockDeductedGrams: 0 }
         : record,
     );
     persistHistory(nextRecords);
     closeConfirmModal();
   };
 
+  const applyMaterialSelection = (recordId: string, materialId: string) => {
+    const spool = materialStock.find((item) => item.id === materialId);
+    if (!spool) return;
+    const nextRecords = records.map((record) => {
+      if (record.id !== recordId) return record;
+      return {
+        ...record,
+        selectedMaterialId: spool.id,
+        materialType: spool.materialType ?? null,
+        materialColorName: spool.color?.name ?? null,
+        materialBrand: spool.brand ?? null,
+        materialGramsUsed: getRequiredGramsForRecord(record),
+      };
+    });
+    persistHistory(nextRecords);
+  };
+
   const handleStartProduction = (record: HistoryRecord) => {
     if (record.status !== "confirmado") return;
     const nextRecords = records.map((item) =>
-      item.id === record.id ? { ...item, status: "en_produccion" as const } : item,
+      item.id === record.id
+        ? { ...item, status: "en_produccion" as const, startedAt: new Date().toISOString() }
+        : item,
     );
     persistHistory(nextRecords);
   };
@@ -1492,16 +1515,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ? materialStock.find((item) => item.id === record.selectedMaterialId)
       : undefined;
     const isDemoSpool = Boolean(spool?.isDemo);
-    const alreadyDeducted = Number(record.stockDeductedGrams ?? 0);
-    const remaining = Math.max(0, required - alreadyDeducted);
-    if (!isDemoSpool && remaining > 0) {
+    if (!isDemoSpool) {
       const available = spool?.gramsAvailable ?? 0;
-      if (!spool || remaining > available) {
-        setStockModal({ open: true, available, required: remaining });
+      if (!spool || required > available) {
+        setStockModal({
+          open: true,
+          available,
+          required,
+          recordId: record.id,
+          selectedMaterialId: record.selectedMaterialId ?? "",
+          resumeFailure: false,
+        });
         return;
       }
       const nextStock = materialStock.map((item) =>
-        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - remaining } : item,
+        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
       );
       persistMaterialStock(nextStock);
     }
@@ -1515,42 +1543,28 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
   const handleConfirmFailure = () => {
     if (!failureTarget) return;
-    if (failureTarget.status !== "confirmado" && failureTarget.status !== "en_produccion") {
+    if (failureTarget.status !== "en_produccion") {
       closeFailureModal();
       return;
     }
     const required = getRequiredGramsForRecord(failureTarget);
-    const percent = Math.min(100, Math.max(0, failurePercent));
+    const percent = Math.min(99, Math.max(0, failurePercent));
     const gramsLost = (required * percent) / 100;
     const gramsRecovered = Math.max(0, required - gramsLost);
     const spool = failureTarget.selectedMaterialId
       ? materialStock.find((item) => item.id === failureTarget.selectedMaterialId)
       : undefined;
     const isDemoSpool = Boolean(spool?.isDemo);
-    const alreadyDeducted = Number(failureTarget.stockDeductedGrams ?? 0);
-    if (!isDemoSpool) {
-      const adjustment = alreadyDeducted - gramsLost;
-      if (adjustment > 0 && spool) {
-        const nextStock = materialStock.map((item) =>
-          item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable + adjustment } : item,
-        );
-        persistMaterialStock(nextStock);
-      } else if (adjustment < 0) {
-        const requiredExtra = Math.abs(adjustment);
-        const available = spool?.gramsAvailable ?? 0;
-        if (!spool || requiredExtra > available) {
-          setStockModal({ open: true, available, required: requiredExtra });
-          return;
-        }
-        const nextStock = materialStock.map((item) =>
-          item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - requiredExtra } : item,
-        );
-        persistMaterialStock(nextStock);
-      }
+    if (!isDemoSpool && spool) {
+      const available = spool.gramsAvailable ?? 0;
+      const nextStock = materialStock.map((item) =>
+        item.id === spool.id ? { ...item, gramsAvailable: Math.max(0, available - gramsLost) } : item,
+      );
+      persistMaterialStock(nextStock);
     }
     const failureDetails: FailureDetails = {
       date: new Date().toLocaleDateString("es-AR"),
-      percentFailed: percent,
+      percentPrinted: percent,
       gramsLost,
       gramsRecovered,
       materialCostLost: (failureTarget.breakdown.materialCost * percent) / 100,
@@ -1608,6 +1622,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       date: new Date().toLocaleDateString("es-AR"),
       status: "cotizado",
       stockDeductedGrams: 0,
+      startedAt: null,
       failure: null,
       stockChanges: [],
       materialGramsUsed,
@@ -1629,10 +1644,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const totalToys = records.length;
-  const revenueRecords = records.filter(
-    (record) =>
-      record.status === "confirmado" || record.status === "en_produccion" || record.status === "finalizado",
-  );
+  const revenueRecords = records.filter((record) => record.status === "finalizado");
   const failedRecords = records.filter((record) => record.status === "fallido");
   const totalHours = revenueRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
   const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
@@ -1734,13 +1746,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .sort((a, b) => b.grams - a.grams);
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
   const productionRecords = records.filter(
-    (record) => record.status === "confirmado" || record.status === "en_produccion",
+    (record) =>
+      record.status === "confirmado" || record.status === "en_produccion" || record.status === "fallido",
   );
   const tableRecords =
     activeSection === "production"
       ? productionRecords
       : activeSection === "reports"
-        ? monthlyRecords
+        ? monthlyReportRecords
         : records;
   const historyTitle =
     activeSection === "production"
@@ -2581,7 +2594,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                     title={!IS_PRO_SANDBOX ? "Disponible en Costly3D PRO" : undefined}
                                   >
-                                    {IS_PRO_SANDBOX ? (
+                                {IS_PRO_SANDBOX ? (
                                       <>
                                         <Download size={14} />
                                         PDF
@@ -2615,8 +2628,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                         openConfirmModal(record);
                                       }}
                                       className="inline-flex items-center justify-center rounded-full p-2 text-green-600 hover:bg-green-50 transition-colors"
-                                      aria-label="Confirmar impresión"
-                                      title="Confirmar impresión"
+                                      aria-label="Confirmar pedido"
+                                      title="Confirmar pedido"
                                     >
                                       ✅
                                     </button>
@@ -2634,35 +2647,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     </button>
                                   </>
                                 )}
-                                {!isReportView && record.status === "confirmado" && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleStartProduction(record);
-                                      }}
-                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
-                                      aria-label="Iniciar producción"
-                                      title="Iniciar producción"
-                                    >
-                                      🏭
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        openFailureModal(record);
-                                      }}
-                                      className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
-                                      aria-label="Registrar impresión fallida"
-                                      title="Registrar impresión fallida"
-                                    >
-                                      ❌
-                                    </button>
-                                  </>
+                                {!isReportView && activeSection === "production" && record.status === "confirmado" && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleStartProduction(record);
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                    aria-label="Iniciar impresión"
+                                    title="Iniciar impresión"
+                                  >
+                                    🏭
+                                  </button>
                                 )}
-                                {!isReportView && record.status === "en_produccion" && (
+                                {!isReportView && activeSection === "production" && record.status === "en_produccion" && (
                                   <>
                                     <button
                                       type="button"
@@ -3289,16 +3288,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Confirmar impresión"
+            aria-label="Confirmar pedido"
           >
-            <h3 className="text-2xl font-bold text-gray-900">Confirmar impresión</h3>
+            <h3 className="text-2xl font-bold text-gray-900">Confirmar pedido</h3>
             <p className="mt-3 text-sm text-gray-600">
-              Esta acción confirma la producción del producto y realizará los siguientes cambios:
+              Esta acción confirma el pedido y lo deja listo para iniciar impresión.
             </p>
             <ul className="mt-4 space-y-2 text-sm text-gray-700">
-              <li>• Descontará el filamento del stock</li>
-              <li>• Registrará la venta en el mes actual</li>
               <li>• Bloqueará la edición de la cotización</li>
+              <li>• No descuenta filamento todavía</li>
+              <li>• No impacta reportes hasta finalizar la impresión</li>
             </ul>
             <p className="mt-4 text-sm font-semibold text-red-500">⚠️ Esta acción no se puede deshacer.</p>
             <p className="mt-2 text-sm text-gray-600">¿Deseas continuar?</p>
@@ -3315,7 +3314,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 onClick={handleConfirmProduction}
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
               >
-                Confirmar impresión
+                Confirmar pedido
               </button>
             </div>
           </div>
@@ -3324,7 +3323,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       {stockModal.open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-          onClick={() => setStockModal({ open: false, available: 0, required: 0 })}
+          onClick={() =>
+            setStockModal({
+              open: false,
+              available: 0,
+              required: 0,
+              recordId: null,
+              selectedMaterialId: "",
+              resumeFailure: false,
+            })
+          }
         >
           <div
             className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
@@ -3344,12 +3352,66 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               Requerido: <span className="font-semibold">{stockModal.required.toFixed(0)} g</span>
             </p>
             <p className="mt-4 text-sm text-gray-600">
-              Ajusta el stock o selecciona otro filamento antes de confirmar.
+              Ajusta el stock o selecciona otro filamento antes de continuar.
             </p>
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Elegí un filamento en stock</label>
+              <select
+                value={stockModal.selectedMaterialId}
+                onChange={(event) =>
+                  setStockModal((prev) => ({ ...prev, selectedMaterialId: event.target.value }))
+                }
+                className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+              >
+                <option value="">Seleccionar filamento</option>
+                {materialStock
+                  .filter((spool) => spool.gramsAvailable > 0)
+                  .map((spool) => (
+                    <option key={spool.id} value={spool.id}>
+                      {spool.displayName}
+                      {spool.isDemo ? " · Demo" : ""} · {spool.gramsAvailable}g
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500">
+                Podés cambiar el filamento para continuar con la impresión.
+              </p>
+            </div>
             <div className="mt-6">
+              {stockModal.recordId && stockModal.selectedMaterialId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyMaterialSelection(stockModal.recordId ?? "", stockModal.selectedMaterialId);
+                    setStockModal({
+                      open: false,
+                      available: 0,
+                      required: 0,
+                      recordId: null,
+                      selectedMaterialId: "",
+                      resumeFailure: false,
+                    });
+                    if (stockModal.resumeFailure && failureTarget) {
+                      setIsFailureModalOpen(true);
+                    }
+                  }}
+                  className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all mr-3"
+                >
+                  Usar este filamento
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setStockModal({ open: false, available: 0, required: 0 })}
+                onClick={() =>
+                  setStockModal({
+                    open: false,
+                    available: 0,
+                    required: 0,
+                    recordId: null,
+                    selectedMaterialId: "",
+                    resumeFailure: false,
+                  })
+                }
                 className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all"
               >
                 Entendido
@@ -3361,7 +3423,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       {isFailureModalOpen && failureTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-          onClick={closeFailureModal}
+          onClick={() => closeFailureModal()}
         >
           <div
             className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
@@ -3377,11 +3439,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
             <div className="mt-6 space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Porcentaje fallido</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Porcentaje impreso</label>
                 <input
                   type="range"
                   min={0}
-                  max={100}
+                  max={99}
                   value={failurePercent}
                   onChange={(event) => setFailurePercent(Number(event.target.value))}
                   className="w-full"
@@ -3390,7 +3452,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   <input
                     type="number"
                     min={0}
-                    max={100}
+                    max={99}
                     value={failurePercent}
                     onChange={(event) => setFailurePercent(Number(event.target.value))}
                     className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -3434,7 +3496,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={closeFailureModal}
+                onClick={() => closeFailureModal()}
                 className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
               >
                 Cancelar
