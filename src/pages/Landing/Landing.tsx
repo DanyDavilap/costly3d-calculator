@@ -83,37 +83,41 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
 
           <section id="features" className="section">
             <div className="section-title">
-              <h2>Funciones principales</h2>
+              <h2>Calculá precios como un profesional</h2>
               <p>Todo lo esencial para calcular costos de impresión 3D, sin hojas de cálculo ni suposiciones.</p>
             </div>
             <div className="grid three">
               <article className="card feature">
-                <h3>Desglose de costos</h3>
+                <h3>Precios reales y claros</h3>
                 <ul className="card-points">
-                  <li>★ Materiales y consumos</li>
-                  <li>★ Tiempo y energía</li>
-                  <li>★ Margen configurable</li>
-                  <li>★ Totales claros</li>
+                  <li>★ Materiales y consumos exactos</li>
+                  <li>★ Tiempo de impresión y energía</li>
+                  <li>★ Margen configurable por producto</li>
+                  <li>★ Total final claro, sin sorpresas</li>
                 </ul>
-                <p className="card-foot">Calcula materiales, tiempo, energía y margen con totales claros y configurables.</p>
+                <p className="card-foot">
+                  Sabés exactamente cuánto cuesta producir cada pieza y cuánto margen real estás ganando.
+                </p>
               </article>
               <article className="card feature">
-                <h3>Historial de cálculos</h3>
+                <h3>Historial reutilizable</h3>
                 <ul className="card-points">
-                  <li>★ Guardá cotizaciones</li>
-                  <li>★ Editá resultados</li>
-                  <li>★ Reutilizá variantes</li>
+                  <li>★ Guardá cotizaciones por producto</li>
+                  <li>★ Editá costos y márgenes</li>
+                  <li>★ Reutilizá variantes en segundos</li>
                 </ul>
-                <p className="card-foot">Guarda, edita y reutiliza cotizaciones para cada producto o variante.</p>
+                <p className="card-foot">
+                  Cada cálculo se convierte en una base de venta para productos recurrentes o variantes similares.
+                </p>
               </article>
               <article className="card feature">
-                <h3>Stock y categorías</h3>
+                <h3>Organización para crecer</h3>
                 <ul className="card-points">
                   <li>★ Control de stock</li>
-                  <li>★ Orden por rubro</li>
-                  <li>★ Categorías claras</li>
+                  <li>★ Organización por rubro o tipo</li>
+                  <li>★ Productos claros y comparables</li>
                 </ul>
-                <p className="card-foot">Controla disponibilidad y organiza productos por rubro o tipo.</p>
+                <p className="card-foot">Dejá de tener precios en la cabeza y pasá a un sistema ordenado y escalable.</p>
               </article>
             </div>
           </section>
@@ -191,6 +195,14 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
           </section>
 
+          <section className="section">
+            <div className="section-title">
+              <h2>Costly3D no es solo una calculadora.</h2>
+              <p>Es un sistema de precios profesional creado por y para makers 3D.</p>
+              <p>Cuando tus precios son claros, tu marca se percibe más fuerte, más seria y más confiable.</p>
+            </div>
+          </section>
+
           <section className="card cta pro-cta">
             <div>
               <h2>Hoy puedes probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
@@ -211,45 +223,45 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
 
           <section id="benefits" className="section">
             <div className="section-title">
-              <h2>Beneficios para tu negocio</h2>
+              <h2>Convertí cada impresión en una decisión rentable</h2>
               <p>Convierte cada impresión en una decisión rentable y repetible.</p>
             </div>
             <div className="grid two">
               <div className="card benefit">
-                <h3>Costos reales</h3>
+                <h3>Pensado para vender</h3>
+                <ul className="card-points">
+                  <li>★ Cotizaciones claras</li>
+                  <li>★ Ventas por encargo</li>
+                  <li>★ Ideal para redes y pedidos directos</li>
+                </ul>
+                <p className="card-foot">Cotizá con seguridad y transmití profesionalismo en cada venta.</p>
+              </div>
+              <div className="card benefit">
+                <h3>Costos reales y consistentes</h3>
                 <ul className="card-points">
                   <li>★ Base de costos real</li>
                   <li>★ Evitá subcotizar</li>
-                  <li>★ Margen consistente</li>
+                  <li>★ Margen siempre consistente</li>
                 </ul>
-                <p className="card-foot">Deja de subcotizar o perder margen usando una base clara y consistente de costos reales.</p>
-              </div>
-              <div className="card benefit">
-                <h3>Pensado para vender</h3>
-                <ul className="card-points">
-                  <li>★ Cotizá por encargo</li>
-                  <li>★ Vendé por redes</li>
-                  <li>★ Series pequeñas</li>
-                </ul>
-                <p className="card-foot">Ideal si cotizas por encargo, vendes por redes o produces en series pequeñas.</p>
+                <p className="card-foot">Dejá de perder dinero usando precios claros y coherentes en cada producto.</p>
               </div>
               <div className="card benefit">
                 <h3>Multi-categoría</h3>
                 <ul className="card-points">
-                  <li>★ Juguetes y accesorios</li>
-                  <li>★ Piezas y decoración</li>
-                  <li>★ Personalizados</li>
+                  <li>★ Juguetes y articulados</li>
+                  <li>★ Accesorios y piezas funcionales</li>
+                  <li>★ Decoración y personalizados</li>
                 </ul>
-                <p className="card-foot">Gestiona juguetes, accesorios, piezas, decoración y productos personalizados.</p>
+                <p className="card-foot">Gestioná distintos tipos de productos desde un solo sistema.</p>
               </div>
               <div className="card benefit">
                 <h3>Historial reutilizable</h3>
                 <ul className="card-points">
                   <li>★ Guardá cada cálculo</li>
                   <li>★ Reutilizá cotizaciones</li>
-                  <li>★ Versiones listas</li>
+                  <li>★ Versiones listas para vender</li>
                 </ul>
-                <p className="card-foot">Convierte cada cálculo en una base sólida para nuevas cotizaciones.</p>
+                <p className="card-foot">Cada cotización se convierte en una base sólida para futuras ventas.</p>
               </div>
             </div>
           </section>

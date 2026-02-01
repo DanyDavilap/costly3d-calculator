@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { track } from "@vercel/analytics";
+import { Toaster } from "sonner";
 import DebugAnalyticsPanel, { debugTrack } from "./components/DebugAnalyticsPanel";
 import Dashboard from "./pages/Dashboard/Dashboard";
 import Landing from "./pages/Landing/Landing";
@@ -80,6 +81,7 @@ export default function App() {
 
   const modalLayer = (
     <>
+      <Toaster position="top-right" richColors />
       {isProModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
@@ -94,15 +96,14 @@ export default function App() {
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Tu negocio 3D está creciendo</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Acceso anticipado Costly3D PRO</h2>
                 {proModalSource === "limit" && (
                   <p className="mt-3 text-sm text-gray-600">
                     Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
                   </p>
                 )}
                 <p className="mt-3 text-sm text-gray-600">
-                  La versión PRO está pensada para makers y talleres que quieren dejar de improvisar precios y empezar
-                  a escalar con claridad.
+                  Dejá de improvisar precios. Empezá a vender con claridad, consistencia y criterio profesional.
                 </p>
               </div>
               <button
@@ -116,11 +117,11 @@ export default function App() {
             </div>
 
             <ul className="mt-5 space-y-2 text-sm text-gray-700">
-              <li>Historial de productos ilimitado</li>
-              <li>Cotizaciones profesionales en PDF / Excel</li>
-              <li>Análisis real de rentabilidad por producto</li>
-              <li>Control avanzado de stock y categorías</li>
-              <li>Comparador de escenarios antes de vender</li>
+              <li>✔ Historial ilimitado de productos</li>
+              <li>✔ Cotizaciones claras y reutilizables</li>
+              <li>✔ Análisis real de rentabilidad</li>
+              <li>✔ Organización profesional del catálogo</li>
+              <li>✔ Mejor percepción de marca y confianza</li>
             </ul>
 
             <p className="mt-5 text-sm font-medium text-gray-700">
@@ -137,14 +138,14 @@ export default function App() {
                   openWaitlistModal();
                 }}
               >
-                Acceso anticipado PRO
+                Quiero acceso anticipado PRO
               </button>
               <button
                 type="button"
                 className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
                 onClick={() => setIsProModalOpen(false)}
               >
-                Seguir probando (solo lectura)
+                Probar versión gratuita
               </button>
             </div>
           </div>

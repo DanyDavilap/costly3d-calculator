@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
+import { toast } from "sonner";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import {
   Calculator,
@@ -15,7 +16,6 @@ import {
   Package,
   Save,
   Trash2,
-  Copy,
   Lock,
   Download,
   Sparkles,
@@ -55,7 +55,7 @@ interface HistoryRecord {
   materialColorName?: string | null;
   materialBrand?: string | null;
   quantity: number;
-  status: "draft" | "sold";
+  status: "cotizado" | "confirmado" | "producido";
   stockChanges: StockChange[];
 }
 
@@ -171,7 +171,7 @@ const buildStockMap = (records: HistoryRecord[]) => {
   return records.reduce<Record<string, number>>((acc, record) => {
     const key = getProductKey(record.name, record.category);
     const current = acc[key] ?? 0;
-    const available = record.status === "sold" ? 0 : record.quantity || 0;
+    const available = record.status === "confirmado" || record.status === "producido" ? 0 : record.quantity || 0;
     acc[key] = current + available;
     return acc;
   }, {});
@@ -191,8 +191,19 @@ const normalizeHistoryRecord = (
   const breakdown = raw.breakdown ?? pricingCalculator({ inputs, params });
   const quantity =
     typeof raw.quantity === "number" && Number.isFinite(raw.quantity) && raw.quantity >= 0 ? raw.quantity : 1;
+  const legacyStatus = String(
+    raw.status ?? ((raw as unknown as { sold?: boolean }).sold ? "sold" : "draft"),
+  );
   const status =
-    raw.status ?? ((raw as unknown as { sold?: boolean }).sold ? "sold" : "draft");
+    legacyStatus === "sold"
+      ? "confirmado"
+      : legacyStatus === "draft"
+        ? "cotizado"
+        : legacyStatus === "produced"
+          ? "producido"
+          : legacyStatus === "confirmado"
+            ? "confirmado"
+            : "cotizado";
   const stockChanges = (raw.stockChanges ?? []).map((change: StockChange) => {
     const inferredReason = change.reason ?? (change.change < 0 ? "sold" : "restock");
     return {
@@ -352,6 +363,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [result, setResult] = useState<PricingResult | null>(null);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<HistoryRecord | null>(null);
+  const [stockModal, setStockModal] = useState({ open: false, available: 0, required: 0 });
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
   const [brand] = useState<BrandSettings>(() => loadBrandSettings());
@@ -542,6 +557,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     } — ${snapshot.grams.toFixed(0)} g`;
   };
 
+  const getStatusBadge = (status: HistoryRecord["status"]) => {
+    switch (status) {
+      case "confirmado":
+        return { label: "Confirmado", className: "bg-blue-100 text-blue-700" };
+      case "producido":
+        return { label: "Producido", className: "bg-green-100 text-green-700" };
+      default:
+        return { label: "Cotizado", className: "bg-yellow-100 text-yellow-700" };
+    }
+  };
+
   const handleSaveSpool = () => {
     const grams = Number.parseFloat(stockForm.gramsAvailable);
     const resolvedBrand = resolveCustomOption(stockForm.brandOption, stockForm.brandOther);
@@ -610,18 +636,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     persistMaterialStock(nextStock);
     setAdjustGrams("");
     setStockNotice("");
-  };
-
-  const restoreMaterialStock = (record: HistoryRecord) => {
-    if (!record.selectedMaterialId || !record.materialGramsUsed) return;
-    const target = materialStock.find((spool) => spool.id === record.selectedMaterialId);
-    if (!target) return;
-    const nextStock = materialStock.map((spool) =>
-      spool.id === target.id
-        ? { ...spool, gramsAvailable: spool.gramsAvailable + record.materialGramsUsed! }
-        : spool,
-    );
-    persistMaterialStock(nextStock);
   };
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
@@ -1017,7 +1031,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
     materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
     quantity: 1,
-    status: "draft",
+    status: "cotizado",
     stockChanges: [],
     };
   };
@@ -1062,29 +1076,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       }
     }
 
-    const quantity = 1;
-    const materialGramsUsed = inputs.materialGrams * quantity;
-    if (selectedMaterialId && materialGramsUsed > 0) {
-      const spool = materialStock.find((item) => item.id === selectedMaterialId);
-      const available = spool?.gramsAvailable ?? 0;
-      if (!spool || available < materialGramsUsed) {
-        setStockError(`No hay suficiente filamento: disponible ${available}g, requerido ${materialGramsUsed}g`);
-        return false;
-      }
-    }
-
     const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
     const signature = buildRecordSignature(inputs, paramsSnapshot);
     const saved = persistHistory([newRecord, ...records], { signature });
-    if (saved && selectedMaterialId && materialGramsUsed > 0) {
-      const nextStock = materialStock.map((spool) =>
-        spool.id === selectedMaterialId
-          ? { ...spool, gramsAvailable: spool.gramsAvailable - materialGramsUsed }
-          : spool,
-      );
-      persistMaterialStock(nextStock);
-      setStockError("");
-    }
     setEditingRecordId(null);
     return saved;
   };
@@ -1132,11 +1126,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
   const saveResult = () => {
     const inputs = getInputs();
-    if (!inputs) return;
-    if (!isValidInputs(inputs) || !isValidParams(params)) return;
+    if (!inputs) return false;
+    if (!isValidInputs(inputs) || !isValidParams(params)) return false;
 
     const breakdown = pricingCalculator({ inputs, params });
-    if (!isValidBreakdown(breakdown)) return;
+    if (!isValidBreakdown(breakdown)) return false;
     setResult({ timeMinutes: inputs.timeMinutes, materialGrams: inputs.materialGrams, breakdown });
     const saved = saveCalculation({
       inputs,
@@ -1147,6 +1141,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     if (saved && !editingRecordId) {
       clearFields();
     }
+    return saved;
   };
 
   const clearFields = () => {
@@ -1302,7 +1297,60 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }));
   };
 
+  const openConfirmModal = (record: HistoryRecord) => {
+    setConfirmTarget(record);
+    setIsConfirmModalOpen(true);
+  };
+
+  const closeConfirmModal = () => {
+    setIsConfirmModalOpen(false);
+    setConfirmTarget(null);
+  };
+
+  const handleConfirmProduction = () => {
+    if (!confirmTarget) return;
+    if (confirmTarget.status !== "cotizado") {
+      closeConfirmModal();
+      return;
+    }
+    const required = confirmTarget.materialGramsUsed ?? confirmTarget.inputs.materialGrams ?? 0;
+    const spool = confirmTarget.selectedMaterialId
+      ? materialStock.find((item) => item.id === confirmTarget.selectedMaterialId)
+      : undefined;
+    const available = spool?.gramsAvailable ?? 0;
+    if (!spool || required > available) {
+      closeConfirmModal();
+      setStockModal({ open: true, available, required });
+      return;
+    }
+
+    const nextStock = materialStock.map((item) =>
+      item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
+    );
+    persistMaterialStock(nextStock);
+
+    const nextRecords = records.map((record) =>
+      record.id === confirmTarget.id ? { ...record, status: "confirmado" as const } : record,
+    );
+    persistHistory(nextRecords);
+    closeConfirmModal();
+  };
+
+  const handleMarkProduced = (record: HistoryRecord) => {
+    if (record.status !== "confirmado") return;
+    const nextRecords = records.map((item) =>
+      item.id === record.id ? { ...item, status: "producido" as const } : item,
+    );
+    persistHistory(nextRecords);
+  };
+
   const openRecord = (record: HistoryRecord) => {
+    if (record.status !== "cotizado") {
+      toast.info("Esta cotización ya está confirmada y no se puede editar.", {
+        duration: 2500,
+      });
+      return;
+    }
     setToyName(record.name);
     setCategory(record.category.trim() || "General");
     setPrintHours(toFixedString(Math.floor(record.inputs.timeMinutes / 60)));
@@ -1327,88 +1375,42 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       typeof record.materialGramsUsed === "number" && Number.isFinite(record.materialGramsUsed)
         ? record.materialGramsUsed
         : (record.inputs?.materialGrams ?? 0) * (record.quantity || 1);
-    if (record.selectedMaterialId && materialGramsUsed > 0) {
-      const spool = materialStock.find((item) => item.id === record.selectedMaterialId);
-      const available = spool?.gramsAvailable ?? 0;
-      if (!spool || available < materialGramsUsed) {
-        alert(`No hay suficiente filamento: disponible ${available}g, requerido ${materialGramsUsed}g`);
-        return;
-      }
-    }
     const duplicated: HistoryRecord = {
       ...record,
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
-      status: "draft",
+      status: "cotizado",
       stockChanges: [],
       materialGramsUsed,
     };
-    const saved = persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
-    if (saved && record.selectedMaterialId && materialGramsUsed > 0) {
-      const nextStock = materialStock.map((spool) =>
-        spool.id === record.selectedMaterialId
-          ? { ...spool, gramsAvailable: spool.gramsAvailable - materialGramsUsed }
-          : spool,
-      );
-      persistMaterialStock(nextStock);
-    }
+    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
   };
 
   const deleteRecord = (record: HistoryRecord) => {
+    if (record.status !== "cotizado") {
+      toast.info("Solo podés eliminar cotizaciones en estado cotizado.", { duration: 2500 });
+      return;
+    }
     if (!confirm("¿Eliminar este producto del historial?")) return;
     const nextRecords = records.filter((item) => item.id !== record.id);
-    restoreMaterialStock(record);
     persistHistory(nextRecords);
     if (editingRecordId === record.id) {
       clearFields();
     }
   };
 
-  const toggleSold = (record: HistoryRecord) => {
-    const stockMap = buildStockMap(records);
-    const key = getProductKey(record.name, record.category);
-    const currentStock = stockMap[key] ?? 0;
-    const nextSold = record.status !== "sold";
-    const nextStatus: HistoryRecord["status"] = nextSold ? "sold" : "draft";
-    const change = nextSold ? -record.quantity : record.quantity;
-    const nextStock = currentStock + change;
-
-    if (nextStock < 0) {
-      alert("Stock insuficiente para marcar como vendido.");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const stockChange: StockChange = {
-      date: now,
-      timestamp: now,
-      change,
-      stockAfter: nextStock,
-      reason: nextSold ? "sold" : "restock",
-      type: nextSold ? "sale" : "restock",
-    };
-
-    const nextRecords = records.map((item) => {
-      if (item.id !== record.id) return item;
-      return {
-        ...item,
-        status: nextStatus,
-        stockChanges: [...item.stockChanges, stockChange],
-      };
-    });
-
-    persistHistory(nextRecords);
-  };
-
   const totalToys = records.length;
-  const totalHours = records.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
-  const totalProfit = records.reduce((sum, r) => sum + r.breakdown.profit, 0);
+  const confirmedRecords = records.filter(
+    (record) => record.status === "confirmado" || record.status === "producido",
+  );
+  const totalHours = confirmedRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
+  const totalProfit = confirmedRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
   const mostProfitable =
-    records.length > 0
-      ? records.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), records[0])
+    confirmedRecords.length > 0
+      ? confirmedRecords.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), confirmedRecords[0])
       : null;
 
-  const categoryData = records.reduce((acc: { category: string; profit: number }[], record) => {
+  const categoryData = confirmedRecords.reduce((acc: { category: string; profit: number }[], record) => {
     const existing = acc.find((item) => item.category === record.category);
     if (existing) {
       existing.profit += record.breakdown.profit;
@@ -1419,7 +1421,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   }, []);
 
   const reportMonthLabel = MONTH_NAMES[reportMonth] ?? "";
-  const monthlyRecords = records.filter((record) => {
+  const monthlyRecords = confirmedRecords.filter((record) => {
     const parsed = parseRecordDate(record.date);
     if (!parsed) return false;
     return parsed.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
@@ -1916,12 +1918,39 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
                     <div className="flex gap-4">
                       <button
-                        onClick={saveResult}
-                        disabled={!result}
+                        onClick={() => {
+                          if (!result || isSaving) return;
+                          setIsSaving(true);
+                          try {
+                            const saved = saveResult();
+                            if (saved) {
+                              toast.success("Cotización guardada en el historial", {
+                                duration: 2500,
+                              });
+                            }
+                          } catch (error) {
+                            toast.error("No pudimos guardar la cotización", {
+                              description: "Intentá de nuevo en unos segundos.",
+                              duration: 2500,
+                            });
+                          } finally {
+                            window.setTimeout(() => setIsSaving(false), 300);
+                          }
+                        }}
+                        disabled={!result || isSaving}
                         className="flex-1 bg-white text-blue-600 font-bold py-3 rounded-xl hover:bg-gray-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Save size={20} />
-                        Guardar resultado
+                        {isSaving ? (
+                          <>
+                            <span className="h-4 w-4 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin" />
+                            Guardando…
+                          </>
+                        ) : (
+                          <>
+                            <Save size={20} />
+                            Guardar resultado
+                          </>
+                        )}
                       </button>
                       <button
                         onClick={clearFields}
@@ -2094,6 +2123,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Costo Total</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Precio Venta</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Ganancia</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Estado</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Acciones</th>
                         </tr>
                       </thead>
@@ -2108,12 +2138,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             onClick={(event) => {
                               // Historial shortcut: Alt + click = duplicar cálculo.
                               if (event.altKey) {
-                                duplicateRecord(record);
-                                return;
-                              }
-                              // Historial shortcut: Shift + click = marcar/desmarcar como vendido (ajusta stock).
-                              if (event.shiftKey) {
-                                toggleSold(record);
+                                if (record.status === "cotizado") {
+                                  duplicateRecord(record);
+                                }
                                 return;
                               }
                               // Historial shortcut: click = abrir para ver/editar.
@@ -2141,6 +2168,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-semibold">
                               {formatCurrency(record.breakdown.profit)}
+                            </td>
+                            <td className="py-4 px-4">
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(record.status).className}`}
+                              >
+                                {getStatusBadge(record.status).label}
+                              </span>
                             </td>
                             <td className="py-4 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -2177,30 +2211,60 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     )}
                                   </button>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    duplicateRecord(record);
-                                  }}
-                                  className="inline-flex items-center justify-center rounded-full p-2 text-blue-500 hover:bg-blue-50 transition-colors"
-                                  aria-label="Duplicar producto"
-                                  title="Duplicar producto"
-                                >
-                                  <Copy size={18} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    deleteRecord(record);
-                                  }}
-                                  className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
-                                  aria-label="Eliminar producto"
-                                  title="Eliminar producto"
-                                >
-                                  <Trash2 size={18} />
-                                </button>
+                                {record.status === "cotizado" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openRecord(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-500 hover:bg-blue-50 transition-colors"
+                                      aria-label="Editar producto"
+                                      title="Editar producto"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openConfirmModal(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-green-600 hover:bg-green-50 transition-colors"
+                                      aria-label="Confirmar impresión"
+                                      title="Confirmar impresión"
+                                    >
+                                      ✅
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        deleteRecord(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
+                                      aria-label="Eliminar producto"
+                                      title="Eliminar producto"
+                                    >
+                                      <Trash2 size={18} />
+                                    </button>
+                                  </>
+                                )}
+                                {record.status === "confirmado" && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleMarkProduced(record);
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-full p-2 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                    aria-label="Marcar como producido"
+                                    title="Marcar como producido"
+                                  >
+                                    ✅
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </motion.tr>
@@ -2741,6 +2805,85 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           </div>
         </section>
       </div>
+      {isConfirmModalOpen && confirmTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={closeConfirmModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar impresión"
+          >
+            <h3 className="text-2xl font-bold text-gray-900">Confirmar impresión</h3>
+            <p className="mt-3 text-sm text-gray-600">
+              Esta acción confirma la producción del producto y realizará los siguientes cambios:
+            </p>
+            <ul className="mt-4 space-y-2 text-sm text-gray-700">
+              <li>• Descontará el filamento del stock</li>
+              <li>• Registrará la venta en el mes actual</li>
+              <li>• Bloqueará la edición de la cotización</li>
+            </ul>
+            <p className="mt-4 text-sm font-semibold text-red-500">⚠️ Esta acción no se puede deshacer.</p>
+            <p className="mt-2 text-sm text-gray-600">¿Deseas continuar?</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={closeConfirmModal}
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmProduction}
+                className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+              >
+                Confirmar impresión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {stockModal.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setStockModal({ open: false, available: 0, required: 0 })}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Stock insuficiente"
+          >
+            <h3 className="text-2xl font-bold text-gray-900">Stock insuficiente</h3>
+            <p className="mt-3 text-sm text-gray-600">
+              El spool seleccionado no tiene material suficiente para esta impresión.
+            </p>
+            <p className="mt-4 text-sm text-gray-700">
+              Disponible: <span className="font-semibold">{stockModal.available.toFixed(0)} g</span>
+            </p>
+            <p className="text-sm text-gray-700">
+              Requerido: <span className="font-semibold">{stockModal.required.toFixed(0)} g</span>
+            </p>
+            <p className="mt-4 text-sm text-gray-600">
+              Ajusta el stock o selecciona otro filamento antes de confirmar.
+            </p>
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={() => setStockModal({ open: false, available: 0, required: 0 })}
+                className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
