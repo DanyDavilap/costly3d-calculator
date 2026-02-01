@@ -80,6 +80,7 @@ interface MaterialSpool {
   color: ColorOption | null;
   gramsAvailable: number;
   costPerKg?: number;
+  isDemo?: boolean;
 }
 
 const PARAMS_STORAGE_KEY = "calculatorBaseParams";
@@ -279,6 +280,7 @@ const loadMaterialStock = (): MaterialSpool[] => {
         color: resolveColorOption(spool.color),
         gramsAvailable: Number.isFinite(spool.gramsAvailable) ? Number(spool.gramsAvailable) : 0,
         costPerKg: Number.isFinite(spool.costPerKg) ? Number(spool.costPerKg) : undefined,
+        isDemo: Boolean(spool.isDemo),
       }))
       .filter((spool) => Boolean(spool.displayName));
     return ensureUniqueDisplayNames(raw);
@@ -432,6 +434,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
+  const showStockOnboarding = materialStock.length === 0;
+  const showStockBanner =
+    showStockOnboarding &&
+    (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
 
   const profitability = useMemo(() => calculateProfitability(records), [records]);
   const hasProfitabilityData = profitability.entries.length > 0;
@@ -597,6 +603,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const costPerKg = Number.parseFloat(stockForm.costPerKg);
     const baseName = buildDisplayNameBase(resolvedMaterial, stockForm.color.name, resolvedBrand);
     const displayName = getUniqueDisplayName(baseName, stockForm.id);
+    const existing = stockForm.id ? materialStock.find((spool) => spool.id === stockForm.id) : undefined;
     const nextSpool: MaterialSpool = {
       id: stockForm.id || Date.now().toString(),
       displayName,
@@ -605,6 +612,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       color: stockForm.color,
       gramsAvailable: grams,
       costPerKg: Number.isFinite(costPerKg) ? costPerKg : undefined,
+      isDemo: existing?.isDemo ?? false,
     };
     const nextStock = stockForm.id
       ? materialStock.map((spool) => (spool.id === stockForm.id ? nextSpool : spool))
@@ -650,6 +658,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     persistMaterialStock(nextStock);
     setAdjustGrams("");
     setStockNotice("");
+  };
+
+  const handleCreateDemoStock = () => {
+    if (materialStock.length > 0) return;
+    const demoSpool: MaterialSpool = {
+      id: Date.now().toString(),
+      displayName: "PLA · Gris · Genérico",
+      brand: "Genérico",
+      materialType: "PLA",
+      color: COLOR_OPTIONS.find((option) => option.name === "Gris") ?? { name: "Gris", hex: "#9CA3AF" },
+      gramsAvailable: 1000,
+      costPerKg: undefined,
+      isDemo: true,
+    };
+    persistMaterialStock(ensureUniqueDisplayNames([demoSpool]));
   };
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
@@ -1332,16 +1355,19 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ? materialStock.find((item) => item.id === confirmTarget.selectedMaterialId)
       : undefined;
     const available = spool?.gramsAvailable ?? 0;
-    if (!spool || required > available) {
+    const isDemoSpool = Boolean(spool?.isDemo);
+    if (!spool || (!isDemoSpool && required > available)) {
       closeConfirmModal();
       setStockModal({ open: true, available, required });
       return;
     }
 
-    const nextStock = materialStock.map((item) =>
-      item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
-    );
-    persistMaterialStock(nextStock);
+    if (!isDemoSpool) {
+      const nextStock = materialStock.map((item) =>
+        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
+      );
+      persistMaterialStock(nextStock);
+    }
 
     const nextRecords = records.map((record) =>
       record.id === confirmTarget.id ? { ...record, status: "confirmado" as const } : record,
@@ -1567,10 +1593,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             <div className="bg-white rounded-2xl shadow-lg p-3 space-y-2">
               {(
                 [
+                  { id: "stock", label: "Stock", icon: Package },
                   { id: "calculator", label: "Calculadora", icon: Calculator },
                   { id: "quotations", label: "Cotizaciones", icon: FileText },
                   { id: "production", label: "Producción", icon: Factory },
-                  { id: "stock", label: "Stock", icon: Package },
                   { id: "reports", label: "Reportes", icon: BarChart3 },
                   { id: "profitability", label: "Rentabilidad", icon: TrendingUp },
                   { id: "branding", label: "Branding", icon: Palette },
@@ -1596,6 +1622,42 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             </div>
           </aside>
           <main className="flex-1">
+            {showStockBanner && (
+              <div className="mb-6 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl" aria-hidden="true">
+                      ⚠️
+                    </span>
+                    <div>
+                      <p className="font-semibold">
+                        Antes de cotizar o producir, cargá tu stock de filamento para obtener costos reales y evitar
+                        errores de material.
+                      </p>
+                      <p className="mt-2 text-xs text-yellow-800">
+                        Este modo es solo orientativo. Para resultados reales, cargá tu stock verdadero.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSection("stock")}
+                      className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                    >
+                      Cargar stock ahora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateDemoStock}
+                      className="bg-white text-yellow-900 px-4 py-2 rounded-lg border border-yellow-300 hover:bg-yellow-100 transition-all font-semibold"
+                    >
+                      Usar stock estimado (modo demo)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             <AnimatePresence mode="wait">
               {activeSection === "calculator" ? (
             <motion.div
@@ -1708,7 +1770,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       {materialStock.length === 0 && <option value="">No hay spools cargados</option>}
                       {materialStock.map((spool) => (
                         <option key={spool.id} value={spool.id}>
-                          {spool.displayName} · {spool.gramsAvailable}g
+                          {spool.displayName}
+                          {spool.isDemo ? " · Demo" : ""} · {spool.gramsAvailable}g
                         </option>
                       ))}
                     </select>
@@ -1965,7 +2028,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           try {
                             const saved = saveResult();
                             if (saved) {
-                              toast.success("Cotización guardada en el historial", {
+                              toast.success("Cotización guardada correctamente. Podés verla en Cotizaciones.", {
                                 duration: 2500,
                               });
                             }
@@ -2369,7 +2432,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   ) : (
                     materialStock.map((spool) => (
                       <tr key={spool.id} className="border-b border-gray-100">
-                        <td className="py-3 px-4 font-semibold text-gray-800">{spool.displayName}</td>
+                        <td className="py-3 px-4 font-semibold text-gray-800">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{spool.displayName}</span>
+                            {spool.isDemo && (
+                              <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold text-yellow-800">
+                                Stock estimado (demo)
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-3 px-4 text-gray-600">{spool.materialType || "—"}</td>
                         <td className="py-3 px-4 text-gray-600">
                           <div className="flex items-center gap-2">
@@ -2522,7 +2594,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       <option value="">Seleccionar spool</option>
                       {materialStock.map((spool) => (
                         <option key={spool.id} value={spool.id}>
-                          {spool.displayName} · {spool.gramsAvailable}g
+                          {spool.displayName}
+                          {spool.isDemo ? " · Demo" : ""} · {spool.gramsAvailable}g
                         </option>
                       ))}
                     </select>
