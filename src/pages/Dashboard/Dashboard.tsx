@@ -2,8 +2,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { jsPDF } from "jspdf";
-import { track } from "@vercel/analytics";
-import { debugTrack } from "../../components/DebugAnalyticsPanel";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import {
   Calculator,
@@ -53,6 +51,9 @@ interface HistoryRecord {
   total: number;
   selectedMaterialId?: string;
   materialGramsUsed?: number;
+  materialType?: string | null;
+  materialColorName?: string | null;
+  materialBrand?: string | null;
   quantity: number;
   status: "draft" | "sold";
   stockChanges: StockChange[];
@@ -85,7 +86,6 @@ const MATERIAL_STOCK_KEY = "materialStock";
 const FREE_PRODUCT_LIMIT = 3;
 const IS_PRO_SANDBOX = true;
 const SHOW_PROFITABILITY_SECTION = false;
-const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
 const MONTH_NAMES = [
   "enero",
   "febrero",
@@ -222,6 +222,9 @@ const normalizeHistoryRecord = (
     total: typeof raw.total === "number" ? raw.total : breakdown.finalPrice,
     selectedMaterialId: raw.selectedMaterialId ?? "",
     materialGramsUsed,
+    materialType: (raw as HistoryRecord).materialType ?? null,
+    materialColorName: (raw as HistoryRecord).materialColorName ?? null,
+    materialBrand: (raw as HistoryRecord).materialBrand ?? null,
     quantity,
     status,
     stockChanges,
@@ -321,7 +324,12 @@ const isValidParams = (params: PricingParams) =>
 const isValidBreakdown = (breakdown: PricingBreakdown) =>
   Object.values(breakdown).every((value) => isFiniteNumber(value));
 
-function Dashboard() {
+type DashboardProps = {
+  onOpenProModal?: (source?: "free_limit" | "cta") => void;
+};
+
+function Dashboard({ onOpenProModal }: DashboardProps) {
+  const handleOpenProModal = onOpenProModal ?? (() => {});
   const [activeTab, setActiveTab] = useState<"calculator" | "history">("calculator");
   const [records, setRecords] = useState<HistoryRecord[]>(() => loadStoredRecords(loadStoredParams()));
 
@@ -346,11 +354,6 @@ function Dashboard() {
   const [isCalculating, setIsCalculating] = useState(false);
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
-  const [isProModalOpen, setIsProModalOpen] = useState(false);
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-  const [waitlistEmail, setWaitlistEmail] = useState("");
-  const [waitlistSuccess, setWaitlistSuccess] = useState(false);
-  const waitlistTimerRef = useRef<number | null>(null);
   const [brand] = useState<BrandSettings>(() => loadBrandSettings());
   const now = new Date();
   const [reportMonth, setReportMonth] = useState(now.getMonth());
@@ -368,6 +371,10 @@ function Dashboard() {
   const [adjustTargetId, setAdjustTargetId] = useState("");
   const [adjustGrams, setAdjustGrams] = useState("");
   const [stockNotice, setStockNotice] = useState("");
+  const [isStockFormHighlighted, setIsStockFormHighlighted] = useState(false);
+  const stockFormRef = useRef<HTMLDivElement | null>(null);
+  const materialSelectRef = useRef<HTMLSelectElement | null>(null);
+  const stockHighlightTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -381,30 +388,19 @@ function Dashboard() {
     saveBrandSettings(brand);
   }, [brand]);
 
+  useEffect(() => {
+    return () => {
+      if (stockHighlightTimerRef.current) {
+        window.clearTimeout(stockHighlightTimerRef.current);
+        stockHighlightTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const persistMaterialStock = (nextStock: MaterialSpool[]) => {
     localStorage.setItem(MATERIAL_STOCK_KEY, JSON.stringify(nextStock));
     setMaterialStock(nextStock);
   };
-
-  useEffect(() => {
-    if (!isProModalOpen) return;
-    let alreadyTracked = false;
-    try {
-      alreadyTracked = sessionStorage.getItem(FREE_LIMIT_EVENT_KEY) === "1";
-    } catch (error) {
-      alreadyTracked = false;
-    }
-    if (alreadyTracked) return;
-    if (import.meta.env.DEV) {
-      debugTrack("free_limit_reached", { source: "free_limit_modal" });
-    }
-    track("free_limit_reached", { source: "free_limit_modal" });
-    try {
-      sessionStorage.setItem(FREE_LIMIT_EVENT_KEY, "1");
-    } catch (error) {
-      // Ignore storage errors to avoid blocking the flow.
-    }
-  }, [isProModalOpen]);
 
   const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
 
@@ -468,18 +464,6 @@ function Dashboard() {
 
   const formatPercent = (value: number) => (Number.isFinite(value) ? `${value.toFixed(1)}%` : "0%");
 
-  const openProBetaForm = () => {
-    if (import.meta.env.DEV) {
-      debugTrack("pro_cta_click", { source: "free_limit_modal" });
-    }
-    track("pro_cta_click", { source: "free_limit_modal" });
-    window.open(
-      "https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/viewform",
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
   const resetStockForm = () => {
     setStockForm({
       id: "",
@@ -491,6 +475,19 @@ function Dashboard() {
       gramsAvailable: "",
       costPerKg: "",
     });
+  };
+
+  const handleAddSpoolClick = () => {
+    resetStockForm();
+    stockFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => materialSelectRef.current?.focus(), 250);
+    setIsStockFormHighlighted(true);
+    if (stockHighlightTimerRef.current) {
+      window.clearTimeout(stockHighlightTimerRef.current);
+    }
+    stockHighlightTimerRef.current = window.setTimeout(() => {
+      setIsStockFormHighlighted(false);
+    }, 600);
   };
 
   const resolveCustomOption = (option: string, otherValue: string) =>
@@ -507,6 +504,42 @@ function Dashboard() {
       candidate = `${baseName} #${suffix}`;
     }
     return candidate;
+  };
+
+  const getSelectedMaterialSnapshot = () => {
+    if (!selectedMaterialId) {
+      return { materialType: null, materialColorName: null, materialBrand: null };
+    }
+    const spool = materialStock.find((item) => item.id === selectedMaterialId);
+    return {
+      materialType: spool?.materialType ?? null,
+      materialColorName: spool?.color?.name ?? null,
+      materialBrand: spool?.brand ?? null,
+    };
+  };
+
+  const resolveMaterialSnapshotFromRecord = (record: HistoryRecord) => {
+    const fallbackSpool = record.selectedMaterialId
+      ? materialStock.find((item) => item.id === record.selectedMaterialId)
+      : undefined;
+    const materialType = record.materialType ?? fallbackSpool?.materialType ?? "";
+    const colorName = record.materialColorName ?? fallbackSpool?.color?.name ?? "";
+    const brandName = record.materialBrand ?? fallbackSpool?.brand ?? "";
+    const grams = typeof record.materialGramsUsed === "number" ? record.materialGramsUsed : 0;
+    if (!materialType && !colorName && !brandName) {
+      return null;
+    }
+    return { materialType, colorName, brandName, grams };
+  };
+
+  const getMaterialDisplayFromRecord = (record: HistoryRecord) => {
+    const snapshot = resolveMaterialSnapshotFromRecord(record);
+    if (!snapshot) {
+      return "Material: —";
+    }
+    return `Material: ${snapshot.materialType || "—"} · ${snapshot.colorName || "—"} · ${
+      snapshot.brandName || "—"
+    } — ${snapshot.grams.toFixed(0)} g`;
   };
 
   const handleSaveSpool = () => {
@@ -610,8 +643,8 @@ function Dashboard() {
     // Single source of truth: history persistence + free-limit checks live only here.
     const isGrowing = newRecords.length > records.length;
     if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
-      // Mostrar modal PRO cuando el límite FREE impide guardar un nuevo producto.
-      setIsProModalOpen(true);
+      // Punto único de entrada PRO: mismo modal para límite FREE y CTA manual.
+      handleOpenProModal("free_limit");
       return false;
     }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
@@ -626,21 +659,6 @@ function Dashboard() {
       lastSavedSignatureRef.current = options.signature;
     }
     return true;
-  };
-
-  const closeWaitlistModal = () => {
-    if (waitlistTimerRef.current) {
-      window.clearTimeout(waitlistTimerRef.current);
-      waitlistTimerRef.current = null;
-    }
-    setIsWaitlistOpen(false);
-    setWaitlistSuccess(false);
-    setWaitlistEmail("");
-  };
-
-  const openWaitlistModal = () => {
-    console.log("PRO_WAITLIST_OPEN");
-    setIsWaitlistOpen(true);
   };
 
   const buildPdfDataFromResult = () => {
@@ -824,6 +842,65 @@ function Dashboard() {
     cursorY += 8;
 
     doc.setFont("helvetica", "bold");
+    doc.text("Consumo de material (mes)", theme.marginX, cursorY);
+    cursorY += theme.lineGap;
+
+    if (totalMaterialGrams <= 0) {
+      doc.setFont("helvetica", "normal");
+      doc.text("Sin datos de consumo para este mes.", theme.marginX, cursorY);
+      cursorY += theme.lineGap;
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.text("Total gramos usados", theme.marginX, cursorY);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${totalMaterialGrams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
+      cursorY += theme.lineGap;
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Por material", theme.marginX, cursorY);
+      cursorY += theme.lineGap;
+      materialConsumptionByMaterialList.slice(0, 5).forEach((item) => {
+        doc.setFont("helvetica", "normal");
+        doc.text(`• ${item.material}`, theme.marginX, cursorY);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
+        cursorY += theme.lineGap;
+      });
+
+      cursorY += 2;
+      doc.setFont("helvetica", "bold");
+      doc.text("Top colores", theme.marginX, cursorY);
+      cursorY += theme.lineGap;
+      materialConsumptionByColorList.slice(0, 3).forEach((item) => {
+        doc.setFont("helvetica", "normal");
+        doc.text(`• ${item.color}`, theme.marginX, cursorY);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
+        cursorY += theme.lineGap;
+      });
+
+      if (materialConsumptionByBrandList.length > 0) {
+        cursorY += 2;
+        doc.setFont("helvetica", "bold");
+        doc.text("Top marcas", theme.marginX, cursorY);
+        cursorY += theme.lineGap;
+        materialConsumptionByBrandList.slice(0, 3).forEach((item) => {
+          doc.setFont("helvetica", "normal");
+          doc.text(`• ${item.brand}`, theme.marginX, cursorY);
+          doc.setFont("helvetica", "bold");
+          doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
+          cursorY += theme.lineGap;
+        });
+      }
+    }
+
+    cursorY += 6;
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.4);
+    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
+    cursorY += 8;
+
+    doc.setFont("helvetica", "bold");
     doc.text("Top 5 productos", theme.marginX, cursorY);
     cursorY += theme.lineGap;
 
@@ -922,7 +999,9 @@ function Dashboard() {
     breakdown: PricingBreakdown;
     paramsSnapshot: PricingParams;
     recordId?: string;
-  }): HistoryRecord => ({
+  }): HistoryRecord => {
+    const materialSnapshot = getSelectedMaterialSnapshot();
+    return {
     id: recordId ?? Date.now().toString(),
     date: new Date().toLocaleDateString("es-AR"),
     name: toyName || "Sin nombre",
@@ -934,10 +1013,14 @@ function Dashboard() {
     total: breakdown.finalPrice,
     selectedMaterialId: selectedMaterialId || "",
     materialGramsUsed: selectedMaterialId ? inputs.materialGrams * 1 : 0,
+    materialType: selectedMaterialId ? materialSnapshot.materialType : null,
+    materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
+    materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
     quantity: 1,
     status: "draft",
     stockChanges: [],
-  });
+    };
+  };
 
   const saveCalculation = ({
     inputs,
@@ -955,6 +1038,8 @@ function Dashboard() {
       const nextRecords = records.map((record) => {
         if (record.id !== editingRecordId) return record;
         updated = true;
+        const nextSelectedMaterialId = selectedMaterialId || "";
+        const materialSnapshot = getSelectedMaterialSnapshot();
         return {
           ...record,
           name: toyName || record.name,
@@ -964,9 +1049,11 @@ function Dashboard() {
           params: paramsSnapshot,
           breakdown,
           total: breakdown.finalPrice,
-          selectedMaterialId: selectedMaterialId || record.selectedMaterialId || "",
-          materialGramsUsed:
-            (selectedMaterialId ? inputs.materialGrams : record.materialGramsUsed) ?? record.materialGramsUsed,
+          selectedMaterialId: nextSelectedMaterialId,
+          materialGramsUsed: nextSelectedMaterialId ? inputs.materialGrams * 1 : 0,
+          materialType: nextSelectedMaterialId ? materialSnapshot.materialType : null,
+          materialColorName: nextSelectedMaterialId ? materialSnapshot.materialColorName : null,
+          materialBrand: nextSelectedMaterialId ? materialSnapshot.materialBrand : null,
         };
       });
       if (updated) {
@@ -1092,24 +1179,75 @@ function Dashboard() {
       "Costo Total",
       "Precio Venta",
       "Ganancia",
+      "Material",
+      "Color",
+      "Marca",
+      "Gramos usados",
     ];
-    const rows = records.map((r) => [
-      r.date,
-      r.name,
-      r.category,
-      r.inputs.timeMinutes.toFixed(0),
-      r.inputs.materialGrams.toFixed(0),
-      r.breakdown.totalCost.toFixed(0),
-      r.breakdown.finalPrice.toFixed(0),
-      r.breakdown.profit.toFixed(0),
+    const rows = monthlyRecords.map((r) => {
+      const snapshot = resolveMaterialSnapshotFromRecord(r);
+      return [
+        r.date,
+        r.name,
+        r.category,
+        r.inputs.timeMinutes.toFixed(0),
+        r.inputs.materialGrams.toFixed(0),
+        r.breakdown.totalCost.toFixed(0),
+        r.breakdown.finalPrice.toFixed(0),
+        r.breakdown.profit.toFixed(0),
+        snapshot?.materialType ?? "",
+        snapshot?.colorName ?? "",
+        snapshot?.brandName ?? "",
+        snapshot?.grams ? snapshot.grams.toFixed(0) : "",
+      ];
+    });
+
+    const consumptionHeaders = ["Material", "Color", "Marca", "Gramos usados"];
+    const consumptionRows = materialConsumptionRows.map((row) => [
+      row.material,
+      row.color,
+      row.brand,
+      row.grams.toFixed(0),
     ]);
 
-    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const escapeXml = (value: string) =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    const buildWorksheet = (name: string, sheetRows: string[][]) => {
+      const rowsXml = sheetRows
+        .map((row) => {
+          const cells = row
+            .map((cell) => {
+              const isNumber = cell !== "" && Number.isFinite(Number(cell));
+              const type = isNumber ? "Number" : "String";
+              return `<Cell><Data ss:Type="${type}">${escapeXml(cell)}</Data></Cell>`;
+            })
+            .join("");
+          return `<Row>${cells}</Row>`;
+        })
+        .join("");
+      return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${rowsXml}</Table></Worksheet>`;
+    };
+
+    const workbook = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  ${buildWorksheet("Historial", [headers, ...rows])}
+  ${buildWorksheet("Consumo material", [consumptionHeaders, ...consumptionRows])}
+</Workbook>`;
+
+    const blob = new Blob([workbook], { type: "application/vnd.ms-excel" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `historial-productos-${Date.now()}.csv`;
+    a.download = `reporte-mensual-${reportYear}-${String(reportMonth + 1).padStart(2, "0")}.xls`;
     a.click();
   };
 
@@ -1293,6 +1431,55 @@ function Dashboard() {
     acc[name] = (acc[name] ?? 0) + (record.total || record.breakdown.finalPrice);
     return acc;
   }, {});
+  const materialConsumptionByMaterial = new Map<string, number>();
+  const materialConsumptionByColor = new Map<string, number>();
+  const materialConsumptionByBrand = new Map<string, number>();
+  const materialConsumptionByCombo = new Map<string, { material: string; color: string; brand: string; grams: number }>();
+  let totalMaterialGrams = 0;
+
+  monthlyRecords.forEach((record) => {
+    const snapshot = resolveMaterialSnapshotFromRecord(record);
+    if (!snapshot || snapshot.grams <= 0) return;
+    const materialKey = snapshot.materialType || "Sin material";
+    const colorKey = snapshot.colorName || "Sin color";
+    const brandKey = snapshot.brandName || "Sin marca";
+    totalMaterialGrams += snapshot.grams;
+    materialConsumptionByMaterial.set(
+      materialKey,
+      (materialConsumptionByMaterial.get(materialKey) ?? 0) + snapshot.grams,
+    );
+    materialConsumptionByColor.set(
+      colorKey,
+      (materialConsumptionByColor.get(colorKey) ?? 0) + snapshot.grams,
+    );
+    materialConsumptionByBrand.set(
+      brandKey,
+      (materialConsumptionByBrand.get(brandKey) ?? 0) + snapshot.grams,
+    );
+    const comboKey = `${materialKey}||${colorKey}||${brandKey}`;
+    const combo = materialConsumptionByCombo.get(comboKey);
+    if (combo) {
+      combo.grams += snapshot.grams;
+    } else {
+      materialConsumptionByCombo.set(comboKey, {
+        material: materialKey,
+        color: colorKey,
+        brand: brandKey,
+        grams: snapshot.grams,
+      });
+    }
+  });
+
+  const materialConsumptionByMaterialList = Array.from(materialConsumptionByMaterial.entries())
+    .map(([material, grams]) => ({ material, grams }))
+    .sort((a, b) => b.grams - a.grams);
+  const materialConsumptionByColorList = Array.from(materialConsumptionByColor.entries())
+    .map(([color, grams]) => ({ color, grams }))
+    .sort((a, b) => b.grams - a.grams);
+  const materialConsumptionByBrandList = Array.from(materialConsumptionByBrand.entries())
+    .map(([brand, grams]) => ({ brand, grams }))
+    .sort((a, b) => b.grams - a.grams);
+  const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
   const topProducts = Object.entries(monthlyProductTotals)
     .map(([name, total]) => ({ name, total }))
     .sort((a, b) => b.total - a.total)
@@ -1876,7 +2063,7 @@ function Dashboard() {
                       className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                     >
                       <Download size={18} />
-                      Exportar CSV
+                      Exportar Excel
                     </button>
                     <button
                       onClick={deleteHistory}
@@ -1934,7 +2121,12 @@ function Dashboard() {
                             }}
                           >
                             <td className="py-4 px-4 text-gray-600">{record.date}</td>
-                            <td className="py-4 px-4 font-semibold text-gray-800">{record.name}</td>
+                            <td className="py-4 px-4 font-semibold text-gray-800">
+                              <div>{record.name}</div>
+                              <p className="mt-1 text-xs font-normal text-gray-500">
+                                {getMaterialDisplayFromRecord(record)}
+                              </p>
+                            </td>
                             <td className="py-4 px-4">
                               <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
                                 {record.category}
@@ -2031,7 +2223,7 @@ function Dashboard() {
               </div>
               <button
                 type="button"
-                onClick={resetStockForm}
+                onClick={handleAddSpoolClick}
                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
               >
                 Agregar spool
@@ -2092,7 +2284,12 @@ function Dashboard() {
             </div>
 
             <div className="mt-6 grid md:grid-cols-2 gap-6">
-              <div className="rounded-2xl border border-gray-200 p-5">
+              <div
+                ref={stockFormRef}
+                className={`rounded-2xl border border-gray-200 p-5 transition-shadow ${
+                  isStockFormHighlighted ? "ring-2 ring-blue-400 shadow-lg" : ""
+                }`}
+              >
                 <h3 className="text-sm font-semibold text-gray-700 mb-4">
                   {stockForm.id ? "Editar spool" : "Agregar spool"}
                 </h3>
@@ -2101,6 +2298,7 @@ function Dashboard() {
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-2">Material</label>
                       <select
+                        ref={materialSelectRef}
                         value={stockForm.materialOption}
                         onChange={(event) => setStockForm((prev) => ({ ...prev, materialOption: event.target.value }))}
                         className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
@@ -2376,7 +2574,7 @@ function Dashboard() {
                     <button
                       type="button"
                       className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                      onClick={openProBetaForm}
+                      onClick={() => handleOpenProModal("cta")}
                     >
                       Acceso anticipado PRO
                     </button>
@@ -2543,149 +2741,6 @@ function Dashboard() {
           </div>
         </section>
       </div>
-      {isProModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setIsProModalOpen(false)}
-        >
-          <div
-            className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Información sobre versión PRO"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Tu negocio 3D está creciendo</h2>
-                <p className="mt-3 text-sm text-gray-600">
-                  Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
-                </p>
-                <p className="mt-3 text-sm text-gray-600">
-                  La versión PRO está pensada para makers y talleres que quieren dejar de improvisar precios y empezar
-                  a escalar con claridad.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsProModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-                aria-label="Cerrar"
-              >
-                ✕
-              </button>
-            </div>
-
-            <ul className="mt-5 space-y-2 text-sm text-gray-700">
-              <li>Historial de productos ilimitado</li>
-              <li>Cotizaciones profesionales en PDF / Excel</li>
-              <li>Análisis real de rentabilidad por producto</li>
-              <li>Control avanzado de stock y categorías</li>
-              <li>Comparador de escenarios antes de vender</li>
-            </ul>
-
-            <p className="mt-5 text-sm font-medium text-gray-700">
-              Si ya estás vendiendo, Costly3D PRO te ahorra errores, tiempo y dinero.
-            </p>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                onClick={() => {
-                  console.log("CTA_PRO_CLICK");
-                  setIsProModalOpen(false);
-                  openWaitlistModal();
-                }}
-              >
-                Acceso anticipado PRO
-              </button>
-              <button
-                type="button"
-                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
-                onClick={() => setIsProModalOpen(false)}
-              >
-                Seguir probando (solo lectura)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {isWaitlistOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-          onClick={closeWaitlistModal}
-        >
-          <div
-            className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Acceso anticipado a Costly3D PRO"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Acceso anticipado a Costly3D PRO</h2>
-                <p className="mt-3 text-sm text-gray-600">
-                  Costly3D PRO está diseñado para makers y talleres que ya venden y quieren controlar sus costos con
-                  claridad.
-                </p>
-                <p className="mt-3 text-sm text-gray-600">Estamos habilitando el acceso de forma gradual.</p>
-              </div>
-              <button
-                type="button"
-                onClick={closeWaitlistModal}
-                className="text-gray-400 hover:text-gray-600"
-                aria-label="Cerrar"
-              >
-                ✕
-              </button>
-            </div>
-
-            {waitlistSuccess ? (
-              <div className="mt-6 rounded-2xl bg-green-50 border border-green-100 p-4 text-green-700 text-sm font-medium">
-                ¡Listo! Te avisaremos cuando Costly3D PRO esté disponible.
-              </div>
-            ) : (
-              <>
-                <div className="mt-5">
-                  <input
-                    type="email"
-                    value={waitlistEmail}
-                    onChange={(event) => setWaitlistEmail(event.target.value)}
-                    placeholder="Tu email de trabajo"
-                    className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                    onClick={() => {
-                      openProBetaForm();
-                    }}
-                  >
-                    Quiero acceso PRO
-                  </button>
-                  <button
-                    type="button"
-                    className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
-                    onClick={closeWaitlistModal}
-                  >
-                    Seguir probando (solo lectura)
-                  </button>
-                </div>
-                <p className="mt-3 text-xs text-gray-500">
-                  Estamos en beta. El acceso se habilita a partir de este formulario.
-                </p>
-                <p className="mt-4 text-xs text-gray-500">
-                  No enviamos spam. Te avisaremos cuando PRO esté disponible.
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

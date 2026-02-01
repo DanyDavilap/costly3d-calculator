@@ -6,9 +6,10 @@ import cotizacionesImg from "../../assets/img/cotizaciones.png";
 
 type LandingProps = {
   onStart: () => void;
+  onOpenProModal: () => void;
 };
 
-export default function Landing({ onStart }: LandingProps) {
+export default function Landing({ onStart, onOpenProModal }: LandingProps) {
   return (
     <div className="landing">
       <div className="app-shell">
@@ -25,9 +26,7 @@ export default function Landing({ onStart }: LandingProps) {
           <button
             type="button"
             className="btn primary"
-            onClick={() => {
-              window.location.href = "./early-access.html";
-            }}
+            onClick={onOpenProModal}
           >
             Acceso anticipado
           </button>
@@ -168,7 +167,7 @@ export default function Landing({ onStart }: LandingProps) {
                 <button
                   type="button"
                   className="btn primary"
-                  onClick={() => alert("Costly3D PRO estará disponible pronto.")}
+                  onClick={onOpenProModal}
                 >
                   Acceso anticipado a PRO
                 </button>
@@ -187,9 +186,7 @@ export default function Landing({ onStart }: LandingProps) {
               <button
                 type="button"
                 className="btn ghost"
-                onClick={() => {
-                  window.location.href = "./early-access.html";
-                }}
+                onClick={onOpenProModal}
               >
                 Acceso anticipado PRO
               </button>
@@ -233,9 +230,7 @@ export default function Landing({ onStart }: LandingProps) {
               <button
                 type="button"
                 className="btn ghost"
-                onClick={() => {
-                  window.location.href = "./early-access.html";
-                }}
+                onClick={onOpenProModal}
               >
                 Acceso anticipado
               </button>
