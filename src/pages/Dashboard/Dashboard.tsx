@@ -43,6 +43,18 @@ import {
 } from "../../utils/pdfTheme";
 import { loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 
+type PrintStatus = "cotizado" | "confirmado" | "en_produccion" | "finalizado" | "fallido";
+
+interface FailureDetails {
+  date: string;
+  percentFailed: number;
+  gramsLost: number;
+  gramsRecovered: number;
+  materialCostLost: number;
+  energyCostLost: number;
+  note?: string;
+}
+
 interface HistoryRecord {
   id: string;
   date: string;
@@ -59,7 +71,9 @@ interface HistoryRecord {
   materialColorName?: string | null;
   materialBrand?: string | null;
   quantity: number;
-  status: "cotizado" | "confirmado" | "producido";
+  status: PrintStatus;
+  stockDeductedGrams?: number;
+  failure?: FailureDetails | null;
   stockChanges: StockChange[];
 }
 
@@ -176,7 +190,7 @@ const buildStockMap = (records: HistoryRecord[]) => {
   return records.reduce<Record<string, number>>((acc, record) => {
     const key = getProductKey(record.name, record.category);
     const current = acc[key] ?? 0;
-    const available = record.status === "confirmado" || record.status === "producido" ? 0 : record.quantity || 0;
+    const available = record.status === "cotizado" ? record.quantity || 0 : 0;
     acc[key] = current + available;
     return acc;
   }, {});
@@ -199,16 +213,18 @@ const normalizeHistoryRecord = (
   const legacyStatus = String(
     raw.status ?? ((raw as unknown as { sold?: boolean }).sold ? "sold" : "draft"),
   );
-  const status =
-    legacyStatus === "sold"
+  const status: PrintStatus =
+    legacyStatus === "sold" || legacyStatus === "confirmado"
       ? "confirmado"
       : legacyStatus === "draft"
         ? "cotizado"
-        : legacyStatus === "produced"
-          ? "producido"
-          : legacyStatus === "confirmado"
-            ? "confirmado"
-            : "cotizado";
+        : legacyStatus === "produced" || legacyStatus === "producido" || legacyStatus === "finalizado"
+          ? "finalizado"
+          : legacyStatus === "en_produccion"
+            ? "en_produccion"
+            : legacyStatus === "fallido"
+              ? "fallido"
+              : "cotizado";
   const stockChanges = (raw.stockChanges ?? []).map((change: StockChange) => {
     const inferredReason = change.reason ?? (change.change < 0 ? "sold" : "restock");
     return {
@@ -225,6 +241,14 @@ const normalizeHistoryRecord = (
     typeof raw.materialGramsUsed === "number" && Number.isFinite(raw.materialGramsUsed)
       ? raw.materialGramsUsed
       : inputs.materialGrams * quantity;
+
+  const failure = (raw as HistoryRecord).failure ?? null;
+  const stockDeductedGrams =
+    typeof (raw as HistoryRecord).stockDeductedGrams === "number"
+      ? (raw as HistoryRecord).stockDeductedGrams
+      : status === "confirmado" || status === "en_produccion" || status === "finalizado"
+        ? materialGramsUsed
+        : 0;
 
   return {
     id: raw.id ?? Date.now().toString(),
@@ -243,6 +267,8 @@ const normalizeHistoryRecord = (
     materialBrand: (raw as HistoryRecord).materialBrand ?? null,
     quantity,
     status,
+    stockDeductedGrams,
+    failure,
     stockChanges,
   };
 };
@@ -383,6 +409,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<HistoryRecord | null>(null);
   const [stockModal, setStockModal] = useState({ open: false, available: 0, required: 0 });
+  const [isFailureModalOpen, setIsFailureModalOpen] = useState(false);
+  const [failureTarget, setFailureTarget] = useState<HistoryRecord | null>(null);
+  const [failurePercent, setFailurePercent] = useState(50);
+  const [failureNote, setFailureNote] = useState("");
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
   const [saveBanner, setSaveBanner] = useState<{
@@ -449,7 +479,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     showStockOnboarding &&
     (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
 
-  const profitability = useMemo(() => calculateProfitability(records), [records]);
+  const profitability = useMemo(
+    () => calculateProfitability(records.filter((record) => record.status !== "fallido")),
+    [records],
+  );
   const hasProfitabilityData = profitability.entries.length > 0;
   const isProEnabled = IS_PRO_SANDBOX;
   const previewTopByProfit =
@@ -591,8 +624,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     switch (status) {
       case "confirmado":
         return { label: "Confirmado", className: "bg-blue-100 text-blue-700" };
-      case "producido":
-        return { label: "Producido", className: "bg-green-100 text-green-700" };
+      case "en_produccion":
+        return { label: "En producción", className: "bg-indigo-100 text-indigo-700" };
+      case "finalizado":
+        return { label: "Finalizado", className: "bg-green-100 text-green-700" };
+      case "fallido":
+        return { label: "Fallido", className: "bg-red-100 text-red-700" };
       default:
         return { label: "Cotizado", className: "bg-yellow-100 text-yellow-700" };
     }
@@ -897,6 +934,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       { label: "Total de cotizaciones", value: monthlyRecords.length.toString() },
       { label: "Total de ingresos", value: formatMoney(monthlyTotal) },
       { label: "Promedio por cotización", value: formatMoney(monthlyAverage) },
+      { label: "Pérdidas por fallas", value: formatMoney(monthlyFailureLosses) },
+      { label: "Gramos desperdiciados", value: `${monthlyFailureGrams.toFixed(0)} g` },
+      { label: "Tasa de fallas", value: `${monthlyFailureRate.toFixed(1)}%` },
     ];
 
     kpis.forEach((item) => {
@@ -1090,6 +1130,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
     quantity: 1,
     status: "cotizado",
+    stockDeductedGrams: 0,
+    failure: null,
     stockChanges: [],
     };
   };
@@ -1227,6 +1269,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       "Fecha",
       "Nombre",
       "Categoría",
+      "Estado",
       "Tiempo (min)",
       "Material (g)",
       "Costo Total",
@@ -1236,22 +1279,34 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       "Color",
       "Marca",
       "Gramos usados",
+      "Gramos perdidos",
+      "Costo material perdido",
+      "Costo energía perdido",
+      "Nota fallo",
     ];
-    const rows = monthlyRecords.map((r) => {
+    const rows = monthlyReportRecords.map((r) => {
       const snapshot = resolveMaterialSnapshotFromRecord(r);
+      const isFailed = r.status === "fallido";
+      const priceValue = isFailed ? 0 : r.breakdown.finalPrice;
+      const profitValue = isFailed ? 0 : r.breakdown.profit;
       return [
         r.date,
         r.name,
         r.category,
+        r.status,
         r.inputs.timeMinutes.toFixed(0),
         r.inputs.materialGrams.toFixed(0),
         r.breakdown.totalCost.toFixed(0),
-        r.breakdown.finalPrice.toFixed(0),
-        r.breakdown.profit.toFixed(0),
+        priceValue.toFixed(0),
+        profitValue.toFixed(0),
         snapshot?.materialType ?? "",
         snapshot?.colorName ?? "",
         snapshot?.brandName ?? "",
         snapshot?.grams ? snapshot.grams.toFixed(0) : "",
+        r.failure?.gramsLost ? r.failure.gramsLost.toFixed(0) : "",
+        r.failure?.materialCostLost ? r.failure.materialCostLost.toFixed(0) : "",
+        r.failure?.energyCostLost ? r.failure.energyCostLost.toFixed(0) : "",
+        r.failure?.note ?? "",
       ];
     });
 
@@ -1365,13 +1420,34 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setConfirmTarget(null);
   };
 
+  const getRequiredGramsForRecord = (record: HistoryRecord) => {
+    const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+    if (typeof record.materialGramsUsed === "number" && Number.isFinite(record.materialGramsUsed)) {
+      return record.materialGramsUsed;
+    }
+    return record.inputs.materialGrams * quantity;
+  };
+
+  const openFailureModal = (record: HistoryRecord) => {
+    setFailureTarget(record);
+    setFailurePercent(50);
+    setFailureNote("");
+    setIsFailureModalOpen(true);
+  };
+
+  const closeFailureModal = () => {
+    setIsFailureModalOpen(false);
+    setFailureTarget(null);
+    setFailureNote("");
+  };
+
   const handleConfirmProduction = () => {
     if (!confirmTarget) return;
     if (confirmTarget.status !== "cotizado") {
       closeConfirmModal();
       return;
     }
-    const required = confirmTarget.materialGramsUsed ?? confirmTarget.inputs.materialGrams ?? 0;
+    const required = getRequiredGramsForRecord(confirmTarget);
     const spool = confirmTarget.selectedMaterialId
       ? materialStock.find((item) => item.id === confirmTarget.selectedMaterialId)
       : undefined;
@@ -1383,31 +1459,121 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       return;
     }
 
-    if (!isDemoSpool) {
+    let deductedGrams = 0;
+    if (!isDemoSpool && spool) {
       const nextStock = materialStock.map((item) =>
         item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
       );
       persistMaterialStock(nextStock);
+      deductedGrams = required;
     }
 
     const nextRecords = records.map((record) =>
-      record.id === confirmTarget.id ? { ...record, status: "confirmado" as const } : record,
+      record.id === confirmTarget.id
+        ? { ...record, status: "confirmado" as const, stockDeductedGrams: deductedGrams }
+        : record,
     );
     persistHistory(nextRecords);
     closeConfirmModal();
   };
 
-  const handleMarkProduced = (record: HistoryRecord) => {
+  const handleStartProduction = (record: HistoryRecord) => {
     if (record.status !== "confirmado") return;
     const nextRecords = records.map((item) =>
-      item.id === record.id ? { ...item, status: "producido" as const } : item,
+      item.id === record.id ? { ...item, status: "en_produccion" as const } : item,
     );
     persistHistory(nextRecords);
   };
 
+  const handleMarkFinalized = (record: HistoryRecord) => {
+    if (record.status !== "en_produccion") return;
+    const required = getRequiredGramsForRecord(record);
+    const spool = record.selectedMaterialId
+      ? materialStock.find((item) => item.id === record.selectedMaterialId)
+      : undefined;
+    const isDemoSpool = Boolean(spool?.isDemo);
+    const alreadyDeducted = Number(record.stockDeductedGrams ?? 0);
+    const remaining = Math.max(0, required - alreadyDeducted);
+    if (!isDemoSpool && remaining > 0) {
+      const available = spool?.gramsAvailable ?? 0;
+      if (!spool || remaining > available) {
+        setStockModal({ open: true, available, required: remaining });
+        return;
+      }
+      const nextStock = materialStock.map((item) =>
+        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - remaining } : item,
+      );
+      persistMaterialStock(nextStock);
+    }
+    const nextRecords = records.map((item) =>
+      item.id === record.id
+        ? { ...item, status: "finalizado" as const, stockDeductedGrams: isDemoSpool ? 0 : required }
+        : item,
+    );
+    persistHistory(nextRecords);
+  };
+
+  const handleConfirmFailure = () => {
+    if (!failureTarget) return;
+    if (failureTarget.status !== "confirmado" && failureTarget.status !== "en_produccion") {
+      closeFailureModal();
+      return;
+    }
+    const required = getRequiredGramsForRecord(failureTarget);
+    const percent = Math.min(100, Math.max(0, failurePercent));
+    const gramsLost = (required * percent) / 100;
+    const gramsRecovered = Math.max(0, required - gramsLost);
+    const spool = failureTarget.selectedMaterialId
+      ? materialStock.find((item) => item.id === failureTarget.selectedMaterialId)
+      : undefined;
+    const isDemoSpool = Boolean(spool?.isDemo);
+    const alreadyDeducted = Number(failureTarget.stockDeductedGrams ?? 0);
+    if (!isDemoSpool) {
+      const adjustment = alreadyDeducted - gramsLost;
+      if (adjustment > 0 && spool) {
+        const nextStock = materialStock.map((item) =>
+          item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable + adjustment } : item,
+        );
+        persistMaterialStock(nextStock);
+      } else if (adjustment < 0) {
+        const requiredExtra = Math.abs(adjustment);
+        const available = spool?.gramsAvailable ?? 0;
+        if (!spool || requiredExtra > available) {
+          setStockModal({ open: true, available, required: requiredExtra });
+          return;
+        }
+        const nextStock = materialStock.map((item) =>
+          item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - requiredExtra } : item,
+        );
+        persistMaterialStock(nextStock);
+      }
+    }
+    const failureDetails: FailureDetails = {
+      date: new Date().toLocaleDateString("es-AR"),
+      percentFailed: percent,
+      gramsLost,
+      gramsRecovered,
+      materialCostLost: (failureTarget.breakdown.materialCost * percent) / 100,
+      energyCostLost: (failureTarget.breakdown.energyCost * percent) / 100,
+      note: failureNote.trim() || undefined,
+    };
+    const nextRecords = records.map((item) =>
+      item.id === failureTarget.id
+        ? {
+            ...item,
+            status: "fallido" as const,
+            failure: failureDetails,
+            stockDeductedGrams: isDemoSpool ? 0 : gramsLost,
+          }
+        : item,
+    );
+    persistHistory(nextRecords);
+    closeFailureModal();
+  };
+
   const openRecord = (record: HistoryRecord) => {
     if (record.status !== "cotizado") {
-      toast.info("Esta cotización ya está confirmada y no se puede editar.", {
+      toast.info("Esta cotización ya fue procesada y no se puede editar.", {
         duration: 2500,
       });
       return;
@@ -1441,6 +1607,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       status: "cotizado",
+      stockDeductedGrams: 0,
+      failure: null,
       stockChanges: [],
       materialGramsUsed,
     };
@@ -1461,17 +1629,19 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const totalToys = records.length;
-  const confirmedRecords = records.filter(
-    (record) => record.status === "confirmado" || record.status === "producido",
+  const revenueRecords = records.filter(
+    (record) =>
+      record.status === "confirmado" || record.status === "en_produccion" || record.status === "finalizado",
   );
-  const totalHours = confirmedRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
-  const totalProfit = confirmedRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
+  const failedRecords = records.filter((record) => record.status === "fallido");
+  const totalHours = revenueRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
+  const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
   const mostProfitable =
-    confirmedRecords.length > 0
-      ? confirmedRecords.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), confirmedRecords[0])
+    revenueRecords.length > 0
+      ? revenueRecords.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), revenueRecords[0])
       : null;
 
-  const categoryData = confirmedRecords.reduce((acc: { category: string; profit: number }[], record) => {
+  const categoryData = revenueRecords.reduce((acc: { category: string; profit: number }[], record) => {
     const existing = acc.find((item) => item.category === record.category);
     if (existing) {
       existing.profit += record.breakdown.profit;
@@ -1482,10 +1652,30 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   }, []);
 
   const reportMonthLabel = MONTH_NAMES[reportMonth] ?? "";
-  const monthlyRecords = confirmedRecords.filter((record) => {
+  const monthlyRecords = revenueRecords.filter((record) => {
     const parsed = parseRecordDate(record.date);
     if (!parsed) return false;
     return parsed.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
+  });
+  const monthlyFailedRecords = failedRecords.filter((record) => {
+    const parsed = parseRecordDate(record.date);
+    if (!parsed) return false;
+    return parsed.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
+  });
+  const monthlyFailureLosses = monthlyFailedRecords.reduce(
+    (sum, record) => sum + (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0),
+    0,
+  );
+  const monthlyFailureGrams = monthlyFailedRecords.reduce(
+    (sum, record) => sum + (record.failure?.gramsLost ?? 0),
+    0,
+  );
+  const monthlyAttempted = monthlyRecords.length + monthlyFailedRecords.length;
+  const monthlyFailureRate = monthlyAttempted > 0 ? (monthlyFailedRecords.length / monthlyAttempted) * 100 : 0;
+  const monthlyReportRecords = [...monthlyRecords, ...monthlyFailedRecords].sort((a, b) => {
+    const dateA = parseRecordDate(a.date)?.getTime() ?? 0;
+    const dateB = parseRecordDate(b.date)?.getTime() ?? 0;
+    return dateB - dateA;
   });
   const monthlyTotal = monthlyRecords.reduce((sum, record) => sum + (record.total || record.breakdown.finalPrice), 0);
   const monthlyAverage = monthlyRecords.length > 0 ? monthlyTotal / monthlyRecords.length : 0;
@@ -1543,7 +1733,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .map(([brand, grams]) => ({ brand, grams }))
     .sort((a, b) => b.grams - a.grams);
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
-  const productionRecords = records.filter((record) => record.status === "confirmado");
+  const productionRecords = records.filter(
+    (record) => record.status === "confirmado" || record.status === "en_produccion",
+  );
   const tableRecords =
     activeSection === "production"
       ? productionRecords
@@ -1929,6 +2121,44 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       <h2 className="text-3xl font-bold">{toyName || "Producto"}</h2>
                     </div>
 
+                    <AnimatePresence>
+                      {saveBanner && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className={`mb-6 rounded-2xl border px-4 py-3 ${
+                            saveBanner.type === "success"
+                              ? "border-green-200 bg-white/90 text-green-700"
+                              : "border-red-200 bg-white/90 text-red-600"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <span className="text-lg" aria-hidden="true">
+                                {saveBanner.type === "success" ? "✅" : "⚠️"}
+                              </span>
+                              <div>
+                                <p className="text-sm font-semibold">{saveBanner.message}</p>
+                                {saveBanner.description && (
+                                  <p className="text-xs opacity-80">{saveBanner.description}</p>
+                                )}
+                              </div>
+                            </div>
+                            {saveBanner.type === "success" && (
+                              <button
+                                type="button"
+                                onClick={() => setActiveSection("quotations")}
+                                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                              >
+                                Ver en Cotizaciones
+                              </button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
                     <div className="grid md:grid-cols-2 gap-4 mb-6">
                       <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
@@ -2049,18 +2279,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           try {
                             const saved = saveResult();
                             if (saved) {
-                              toast.success("Cotización guardada correctamente. Podés verla en Cotizaciones.", {
-                                duration: 2500,
-                                action: {
-                                  label: "Ver en historial",
-                                  onClick: () => setActiveSection("quotations"),
-                                },
+                              showSaveBanner({
+                                type: "success",
+                                message: "Cotización guardada correctamente.",
+                                description: "Podés verla en Cotizaciones.",
                               });
                             }
                           } catch (error) {
-                            toast.error("No pudimos guardar la cotización", {
+                            showSaveBanner({
+                              type: "error",
+                              message: "No pudimos guardar la cotización.",
                               description: "Intentá de nuevo en unos segundos.",
-                              duration: 2500,
                             });
                           } finally {
                             window.setTimeout(() => setIsSaving(false), 300);
@@ -2147,6 +2376,23 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   <p className="text-sm font-medium opacity-90">Más rentable</p>
                 </motion.div>
               </div>
+              )}
+
+              {activeSection === "reports" && (
+                <div className="grid md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-red-50 rounded-2xl border border-red-100 p-4 text-sm text-red-700">
+                    <p className="text-xs uppercase tracking-wide text-red-500">Pérdidas por fallas</p>
+                    <p className="mt-2 text-lg font-semibold">{formatCurrency(monthlyFailureLosses)}</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-2xl border border-amber-100 p-4 text-sm text-amber-700">
+                    <p className="text-xs uppercase tracking-wide text-amber-600">Gramos desperdiciados</p>
+                    <p className="mt-2 text-lg font-semibold">{monthlyFailureGrams.toFixed(0)} g</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Tasa de fallas</p>
+                    <p className="mt-2 text-lg font-semibold">{monthlyFailureRate.toFixed(1)}%</p>
+                  </div>
+                </div>
               )}
 
               {activeSection === "reports" && categoryData.length > 0 && (
@@ -2301,10 +2547,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                               {formatCurrency(record.breakdown.totalCost)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-bold">
-                              {formatCurrency(record.breakdown.finalPrice)}
+                              {formatCurrency(record.status === "fallido" ? 0 : record.breakdown.finalPrice)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-semibold">
-                              {formatCurrency(record.breakdown.profit)}
+                              {formatCurrency(record.status === "fallido" ? 0 : record.breakdown.profit)}
                             </td>
                             <td className="py-4 px-4">
                               <span
@@ -2389,18 +2635,60 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                   </>
                                 )}
                                 {!isReportView && record.status === "confirmado" && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleMarkProduced(record);
-                                    }}
-                                    className="inline-flex items-center justify-center rounded-full p-2 text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                    aria-label="Marcar como producido"
-                                    title="Marcar como producido"
-                                  >
-                                    ✅
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleStartProduction(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                      aria-label="Iniciar producción"
+                                      title="Iniciar producción"
+                                    >
+                                      🏭
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openFailureModal(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
+                                      aria-label="Registrar impresión fallida"
+                                      title="Registrar impresión fallida"
+                                    >
+                                      ❌
+                                    </button>
+                                  </>
+                                )}
+                                {!isReportView && record.status === "en_produccion" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleMarkFinalized(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                      aria-label="Finalizar impresión"
+                                      title="Finalizar impresión"
+                                    >
+                                      ✅
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openFailureModal(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
+                                      aria-label="Registrar impresión fallida"
+                                      title="Registrar impresión fallida"
+                                    >
+                                      ❌
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -3065,6 +3353,98 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all"
               >
                 Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isFailureModalOpen && failureTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={closeFailureModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Registrar impresión fallida"
+          >
+            <h3 className="text-2xl font-bold text-gray-900">Registrar impresión fallida</h3>
+            <p className="mt-3 text-sm text-gray-600">
+              Esta acción registrará una pérdida real de material y no se puede deshacer.
+            </p>
+
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Porcentaje fallido</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={failurePercent}
+                  onChange={(event) => setFailurePercent(Number(event.target.value))}
+                  className="w-full"
+                />
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={failurePercent}
+                    onChange={(event) => setFailurePercent(Number(event.target.value))}
+                    className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                  <span className="text-sm text-gray-500">%</span>
+                </div>
+              </div>
+
+              {(() => {
+                const required = getRequiredGramsForRecord(failureTarget);
+                const percent = Math.min(100, Math.max(0, failurePercent));
+                const gramsLost = (required * percent) / 100;
+                const gramsRecovered = Math.max(0, required - gramsLost);
+                return (
+                  <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 text-sm text-gray-700">
+                    <p className="font-semibold text-gray-800">Resumen de material</p>
+                    <p className="mt-2">
+                      Filamento perdido:{" "}
+                      <span className="font-semibold text-red-500">{gramsLost.toFixed(0)} g</span>
+                    </p>
+                    <p className="mt-1">
+                      Filamento recuperado:{" "}
+                      <span className="font-semibold text-emerald-600">{gramsRecovered.toFixed(0)} g</span>
+                    </p>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Nota del fallo (opcional)</label>
+                <textarea
+                  value={failureNote}
+                  onChange={(event) => setFailureNote(event.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Ej: se desprendió el soporte en la mitad de la impresión."
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={closeFailureModal}
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmFailure}
+                className="bg-red-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-red-600 transition-all"
+              >
+                Confirmar fallo
               </button>
             </div>
           </div>
