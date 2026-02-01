@@ -30,6 +30,7 @@ import {
   PricingParams,
 } from "../../utils/pricingCalculator";
 import { calculateProfitability } from "../../utils/profitability";
+import ColorPicker, { type ColorOption } from "../../components/ui/ColorPicker";
 import {
   createPdfTheme,
   formatDate,
@@ -68,10 +69,10 @@ interface StockChange {
 
 interface MaterialSpool {
   id: string;
-  name: string;
+  displayName: string;
   brand: string;
   materialType: string;
-  color: string;
+  color: ColorOption | null;
   gramsAvailable: number;
   costPerKg?: number;
 }
@@ -98,6 +99,33 @@ const MONTH_NAMES = [
   "octubre",
   "noviembre",
   "diciembre",
+];
+const MATERIAL_OPTIONS = ["PLA", "PETG", "ABS", "TPU", "Resin", "Otro..."];
+const BRAND_OPTIONS = [
+  "Bambu Lab",
+  "Elegoo",
+  "Printalot",
+  "Sunlu",
+  "eSUN",
+  "Ecofila",
+  "Creality",
+  "3N3",
+  "Grilon3",
+  "Otro...",
+];
+const COLOR_OPTIONS: ColorOption[] = [
+  { name: "Negro", hex: "#111827" },
+  { name: "Blanco", hex: "#F8FAFC" },
+  { name: "Gris", hex: "#9CA3AF" },
+  { name: "Rojo", hex: "#EF4444" },
+  { name: "Naranja", hex: "#F97316" },
+  { name: "Amarillo", hex: "#FACC15" },
+  { name: "Verde", hex: "#22C55E" },
+  { name: "Azul", hex: "#3B82F6" },
+  { name: "Celeste", hex: "#38BDF8" },
+  { name: "Violeta", hex: "#8B5CF6" },
+  { name: "Rosa", hex: "#EC4899" },
+  { name: "Transparente", hex: "#E2E8F0" },
 ];
 
 const DEFAULT_PARAMS: PricingParams = {
@@ -224,21 +252,58 @@ const loadMaterialStock = (): MaterialSpool[] => {
   try {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const raw = parsed
       .map((spool) => ({
         id: String(spool.id ?? Date.now().toString()),
-        name: String(spool.name ?? ""),
+        displayName: String(spool.displayName ?? spool.name ?? ""),
         brand: String(spool.brand ?? ""),
         materialType: String(spool.materialType ?? ""),
-        color: String(spool.color ?? ""),
+        color: resolveColorOption(spool.color),
         gramsAvailable: Number.isFinite(spool.gramsAvailable) ? Number(spool.gramsAvailable) : 0,
         costPerKg: Number.isFinite(spool.costPerKg) ? Number(spool.costPerKg) : undefined,
       }))
-      .filter((spool) => Boolean(spool.name));
+      .filter((spool) => Boolean(spool.displayName));
+    return ensureUniqueDisplayNames(raw);
   } catch (error) {
     return [];
   }
 };
+
+function resolveColorOption(value: unknown): ColorOption | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const match = COLOR_OPTIONS.find((option) => option.name.toLowerCase() === value.toLowerCase());
+    return match ?? { name: value, hex: "#94A3B8" };
+  }
+  if (typeof value === "object") {
+    const maybe = value as { name?: string; hex?: string };
+    if (maybe.name && maybe.hex) {
+      return { name: maybe.name, hex: maybe.hex };
+    }
+  }
+  return null;
+}
+
+function buildDisplayNameBase(materialType: string, colorName: string, brand: string) {
+  const safeMaterial = materialType.trim() || "Material";
+  const safeColor = colorName.trim() || "Color";
+  const safeBrand = brand.trim() || "Marca";
+  return `${safeMaterial} · ${safeColor} · ${safeBrand}`;
+}
+
+function ensureUniqueDisplayNames(stock: MaterialSpool[]) {
+  const counts = new Map<string, number>();
+  return stock.map((spool) => {
+    const base =
+      spool.displayName?.trim() ||
+      buildDisplayNameBase(spool.materialType, spool.color?.name ?? "", spool.brand);
+    const normalized = base.trim() || "Spool";
+    const nextCount = (counts.get(normalized) ?? 0) + 1;
+    counts.set(normalized, nextCount);
+    const displayName = nextCount === 1 ? normalized : `${normalized} #${nextCount}`;
+    return { ...spool, displayName };
+  });
+}
 
 const isFiniteNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value);
 
@@ -292,10 +357,11 @@ function Dashboard() {
   const [reportYear, setReportYear] = useState(now.getFullYear());
   const [stockForm, setStockForm] = useState({
     id: "",
-    name: "",
-    brand: "",
-    materialType: "",
-    color: "",
+    brandOption: "",
+    brandOther: "",
+    materialOption: "",
+    materialOther: "",
+    color: null as ColorOption | null,
     gramsAvailable: "",
     costPerKg: "",
   });
@@ -417,28 +483,53 @@ function Dashboard() {
   const resetStockForm = () => {
     setStockForm({
       id: "",
-      name: "",
-      brand: "",
-      materialType: "",
-      color: "",
+      brandOption: "",
+      brandOther: "",
+      materialOption: "",
+      materialOther: "",
+      color: null,
       gramsAvailable: "",
       costPerKg: "",
     });
   };
 
+  const resolveCustomOption = (option: string, otherValue: string) =>
+    option === "Otro..." ? otherValue.trim() : option.trim();
+
+  const getUniqueDisplayName = (baseName: string, currentId?: string) => {
+    const existing = materialStock
+      .filter((spool) => spool.id !== currentId)
+      .map((spool) => spool.displayName);
+    let suffix = 1;
+    let candidate = baseName;
+    while (existing.includes(candidate)) {
+      suffix += 1;
+      candidate = `${baseName} #${suffix}`;
+    }
+    return candidate;
+  };
+
   const handleSaveSpool = () => {
     const grams = Number.parseFloat(stockForm.gramsAvailable);
-    if (!stockForm.name.trim() || !Number.isFinite(grams) || grams < 0) {
-      setStockNotice("Ingresá un nombre y gramos disponibles válidos.");
+    const resolvedBrand = resolveCustomOption(stockForm.brandOption, stockForm.brandOther);
+    const resolvedMaterial = resolveCustomOption(stockForm.materialOption, stockForm.materialOther);
+    if (!resolvedBrand || !resolvedMaterial || !stockForm.color) {
+      setStockNotice("Completá marca, material y color.");
+      return;
+    }
+    if (!Number.isFinite(grams) || grams < 0) {
+      setStockNotice("Ingresá gramos disponibles válidos.");
       return;
     }
     const costPerKg = Number.parseFloat(stockForm.costPerKg);
+    const baseName = buildDisplayNameBase(resolvedMaterial, stockForm.color.name, resolvedBrand);
+    const displayName = getUniqueDisplayName(baseName, stockForm.id);
     const nextSpool: MaterialSpool = {
       id: stockForm.id || Date.now().toString(),
-      name: stockForm.name.trim(),
-      brand: stockForm.brand.trim(),
-      materialType: stockForm.materialType.trim(),
-      color: stockForm.color.trim(),
+      displayName,
+      brand: resolvedBrand,
+      materialType: resolvedMaterial,
+      color: stockForm.color,
       gramsAvailable: grams,
       costPerKg: Number.isFinite(costPerKg) ? costPerKg : undefined,
     };
@@ -451,11 +542,14 @@ function Dashboard() {
   };
 
   const handleEditSpool = (spool: MaterialSpool) => {
+    const brandOption = BRAND_OPTIONS.includes(spool.brand) ? spool.brand : "Otro...";
+    const materialOption = MATERIAL_OPTIONS.includes(spool.materialType) ? spool.materialType : "Otro...";
     setStockForm({
       id: spool.id,
-      name: spool.name,
-      brand: spool.brand,
-      materialType: spool.materialType,
+      brandOption,
+      brandOther: brandOption === "Otro..." ? spool.brand : "",
+      materialOption,
+      materialOther: materialOption === "Otro..." ? spool.materialType : "",
       color: spool.color,
       gramsAvailable: spool.gramsAvailable.toString(),
       costPerKg: spool.costPerKg?.toString() ?? "",
@@ -1384,7 +1478,7 @@ function Dashboard() {
                       {materialStock.length === 0 && <option value="">No hay spools cargados</option>}
                       {materialStock.map((spool) => (
                         <option key={spool.id} value={spool.id}>
-                          {spool.name} · {spool.gramsAvailable}g
+                          {spool.displayName} · {spool.gramsAvailable}g
                         </option>
                       ))}
                     </select>
@@ -1950,7 +2044,7 @@ function Dashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-gray-200 text-left">
-                    <th className="py-3 px-4 font-semibold text-gray-700">Nombre</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700">Spool</th>
                     <th className="py-3 px-4 font-semibold text-gray-700">Material</th>
                     <th className="py-3 px-4 font-semibold text-gray-700">Color</th>
                     <th className="py-3 px-4 font-semibold text-gray-700">Marca</th>
@@ -1968,9 +2062,17 @@ function Dashboard() {
                   ) : (
                     materialStock.map((spool) => (
                       <tr key={spool.id} className="border-b border-gray-100">
-                        <td className="py-3 px-4 font-semibold text-gray-800">{spool.name}</td>
+                        <td className="py-3 px-4 font-semibold text-gray-800">{spool.displayName}</td>
                         <td className="py-3 px-4 text-gray-600">{spool.materialType || "—"}</td>
-                        <td className="py-3 px-4 text-gray-600">{spool.color || "—"}</td>
+                        <td className="py-3 px-4 text-gray-600">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-3 w-3 rounded-full border border-gray-200"
+                              style={{ backgroundColor: spool.color?.hex ?? "#E2E8F0" }}
+                            />
+                            <span>{spool.color?.name || "—"}</span>
+                          </div>
+                        </td>
                         <td className="py-3 px-4 text-gray-600">{spool.brand || "—"}</td>
                         <td className="py-3 px-4 text-right text-gray-700">{spool.gramsAvailable} g</td>
                         <td className="py-3 px-4 text-right">
@@ -1995,54 +2097,74 @@ function Dashboard() {
                   {stockForm.id ? "Editar spool" : "Agregar spool"}
                 </h3>
                 <div className="grid gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre</label>
-                    <input
-                      type="text"
-                      value={stockForm.name}
-                      onChange={(event) => setStockForm((prev) => ({ ...prev, name: event.target.value }))}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-2">Material</label>
-                      <input
-                        type="text"
-                        value={stockForm.materialType}
-                        onChange={(event) => setStockForm((prev) => ({ ...prev, materialType: event.target.value }))}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
+                      <select
+                        value={stockForm.materialOption}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, materialOption: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                      >
+                        <option value="">Seleccionar material</option>
+                        {MATERIAL_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {stockForm.materialOption === "Otro..." && (
+                        <input
+                          type="text"
+                          value={stockForm.materialOther}
+                          onChange={(event) =>
+                            setStockForm((prev) => ({ ...prev, materialOther: event.target.value }))
+                          }
+                          placeholder="Material (otro)"
+                          className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-2">Color</label>
-                      <input
-                        type="text"
-                        value={stockForm.color}
-                        onChange={(event) => setStockForm((prev) => ({ ...prev, color: event.target.value }))}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-2">Marca</label>
-                      <input
-                        type="text"
-                        value={stockForm.brand}
-                        onChange={(event) => setStockForm((prev) => ({ ...prev, brand: event.target.value }))}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
+                      <select
+                        value={stockForm.brandOption}
+                        onChange={(event) => setStockForm((prev) => ({ ...prev, brandOption: event.target.value }))}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                      >
+                        <option value="">Seleccionar marca</option>
+                        {BRAND_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {stockForm.brandOption === "Otro..." && (
+                        <input
+                          type="text"
+                          value={stockForm.brandOther}
+                          onChange={(event) => setStockForm((prev) => ({ ...prev, brandOther: event.target.value }))}
+                          placeholder="Marca (otro)"
+                          className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-600 mb-2">Gramos disponibles</label>
-                      <input
-                        type="number"
-                        value={stockForm.gramsAvailable}
-                        onChange={(event) => setStockForm((prev) => ({ ...prev, gramsAvailable: event.target.value }))}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Color</label>
+                    <ColorPicker
+                      value={stockForm.color}
+                      options={COLOR_OPTIONS}
+                      onChange={(color) => setStockForm((prev) => ({ ...prev, color }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Gramos disponibles</label>
+                    <input
+                      type="number"
+                      value={stockForm.gramsAvailable}
+                      onChange={(event) => setStockForm((prev) => ({ ...prev, gramsAvailable: event.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-2">Costo por kg (opcional)</label>
@@ -2087,7 +2209,7 @@ function Dashboard() {
                       <option value="">Seleccionar spool</option>
                       {materialStock.map((spool) => (
                         <option key={spool.id} value={spool.id}>
-                          {spool.name} · {spool.gramsAvailable}g
+                          {spool.displayName} · {spool.gramsAvailable}g
                         </option>
                       ))}
                     </select>
