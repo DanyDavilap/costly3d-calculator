@@ -430,7 +430,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     required: 0,
     recordId: null as string | null,
     selectedMaterialId: "",
-    resumeFailure: false,
   });
   const [isFailureModalOpen, setIsFailureModalOpen] = useState(false);
   const [failureTarget, setFailureTarget] = useState<HistoryRecord | null>(null);
@@ -1481,31 +1480,55 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     closeConfirmModal();
   };
 
-  const applyMaterialSelection = (recordId: string, materialId: string) => {
-    const spool = materialStock.find((item) => item.id === materialId);
-    if (!spool) return;
-    const nextRecords = records.map((record) => {
-      if (record.id !== recordId) return record;
+  const openStockInsufficientModal = (payload: {
+    recordId: string;
+    required: number;
+    selectedMaterialId: string;
+  }) => {
+    setIsFailureModalOpen(false);
+    setStockModal({
+      open: true,
+      available:
+        materialStock.find((item) => item.id === payload.selectedMaterialId)?.gramsAvailable ?? 0,
+      required: payload.required,
+      recordId: payload.recordId,
+      selectedMaterialId: payload.selectedMaterialId,
+    });
+  };
+
+  const startProduction = (record: HistoryRecord, overrideMaterialId?: string) => {
+    if (record.status !== "confirmado") return;
+    const selectedId = overrideMaterialId ?? record.selectedMaterialId ?? "";
+    const required = getRequiredGramsForRecord(record);
+    const spool = selectedId ? materialStock.find((item) => item.id === selectedId) : undefined;
+    const available = spool?.gramsAvailable ?? 0;
+    if (!spool || required > available) {
+      openStockInsufficientModal({
+        recordId: record.id,
+        required,
+        selectedMaterialId: selectedId,
+      });
+      return;
+    }
+
+    const nextRecords = records.map((item) => {
+      if (item.id !== record.id) return item;
       return {
-        ...record,
+        ...item,
+        status: "en_produccion" as const,
+        startedAt: new Date().toISOString(),
         selectedMaterialId: spool.id,
         materialType: spool.materialType ?? null,
         materialColorName: spool.color?.name ?? null,
         materialBrand: spool.brand ?? null,
-        materialGramsUsed: getRequiredGramsForRecord(record),
+        materialGramsUsed: required,
       };
     });
     persistHistory(nextRecords);
   };
 
   const handleStartProduction = (record: HistoryRecord) => {
-    if (record.status !== "confirmado") return;
-    const nextRecords = records.map((item) =>
-      item.id === record.id
-        ? { ...item, status: "en_produccion" as const, startedAt: new Date().toISOString() }
-        : item,
-    );
-    persistHistory(nextRecords);
+    startProduction(record);
   };
 
   const handleMarkFinalized = (record: HistoryRecord) => {
@@ -1515,21 +1538,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ? materialStock.find((item) => item.id === record.selectedMaterialId)
       : undefined;
     const isDemoSpool = Boolean(spool?.isDemo);
-    if (!isDemoSpool) {
-      const available = spool?.gramsAvailable ?? 0;
-      if (!spool || required > available) {
-        setStockModal({
-          open: true,
-          available,
-          required,
-          recordId: record.id,
-          selectedMaterialId: record.selectedMaterialId ?? "",
-          resumeFailure: false,
-        });
-        return;
-      }
+    if (!isDemoSpool && spool) {
+      const available = spool.gramsAvailable ?? 0;
       const nextStock = materialStock.map((item) =>
-        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
+        item.id === spool.id ? { ...item, gramsAvailable: Math.max(0, available - required) } : item,
       );
       persistMaterialStock(nextStock);
     }
@@ -3330,7 +3342,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               required: 0,
               recordId: null,
               selectedMaterialId: "",
-              resumeFailure: false,
             })
           }
         >
@@ -3354,6 +3365,22 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             <p className="mt-4 text-sm text-gray-600">
               Ajusta el stock o selecciona otro filamento antes de continuar.
             </p>
+            {stockModal.recordId && (
+              <div className="mt-3 text-sm text-gray-700">
+                <p className="font-semibold">Filamento actual</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {(() => {
+                    const record = records.find((item) => item.id === stockModal.recordId);
+                    if (!record) return "—";
+                    const snapshot = resolveMaterialSnapshotFromRecord(record);
+                    if (!snapshot) return "—";
+                    return `${snapshot.materialType || "—"} · ${snapshot.colorName || "—"} · ${
+                      snapshot.brandName || "—"
+                    }`;
+                  })()}
+                </p>
+              </div>
+            )}
             <div className="mt-4">
               <label className="block text-sm font-semibold text-gray-700 mb-2">Elegí un filamento en stock</label>
               <select
@@ -3365,7 +3392,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               >
                 <option value="">Seleccionar filamento</option>
                 {materialStock
-                  .filter((spool) => spool.gramsAvailable > 0)
+                  .filter((spool) => spool.gramsAvailable >= stockModal.required)
                   .map((spool) => (
                     <option key={spool.id} value={spool.id}>
                       {spool.displayName}
@@ -3382,22 +3409,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    applyMaterialSelection(stockModal.recordId ?? "", stockModal.selectedMaterialId);
+                    const record = records.find((item) => item.id === stockModal.recordId);
+                    if (record) {
+                      startProduction(record, stockModal.selectedMaterialId);
+                    }
                     setStockModal({
                       open: false,
                       available: 0,
                       required: 0,
                       recordId: null,
                       selectedMaterialId: "",
-                      resumeFailure: false,
                     });
-                    if (stockModal.resumeFailure && failureTarget) {
-                      setIsFailureModalOpen(true);
-                    }
                   }}
                   className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all mr-3"
                 >
-                  Usar este filamento
+                  Cambiar filamento y continuar
                 </button>
               )}
               <button
@@ -3409,12 +3435,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     required: 0,
                     recordId: null,
                     selectedMaterialId: "",
-                    resumeFailure: false,
                   })
                 }
                 className="bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-blue-600 transition-all"
               >
-                Entendido
+                Cancelar
               </button>
             </div>
           </div>
