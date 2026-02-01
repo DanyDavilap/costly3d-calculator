@@ -20,6 +20,10 @@ import {
   Download,
   Sparkles,
   Rocket,
+  FileText,
+  Factory,
+  Palette,
+  Settings,
 } from "lucide-react";
 import {
   pricingCalculator,
@@ -339,9 +343,19 @@ type DashboardProps = {
   onOpenProModal?: (source?: "limit" | "cta") => void;
 };
 
+type DashboardSection =
+  | "calculator"
+  | "quotations"
+  | "production"
+  | "stock"
+  | "reports"
+  | "profitability"
+  | "branding"
+  | "settings";
+
 function Dashboard({ onOpenProModal }: DashboardProps) {
   const handleOpenProModal = onOpenProModal ?? (() => {});
-  const [activeTab, setActiveTab] = useState<"calculator" | "history">("calculator");
+  const [activeSection, setActiveSection] = useState<DashboardSection>("calculator");
   const [records, setRecords] = useState<HistoryRecord[]>(() => loadStoredRecords(loadStoredParams()));
 
   const [toyName, setToyName] = useState("");
@@ -1367,7 +1381,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       breakdown: record.breakdown,
     });
     setEditingRecordId(record.id);
-    setActiveTab("calculator");
+    setActiveSection("calculator");
   };
 
   const duplicateRecord = (record: HistoryRecord) => {
@@ -1482,6 +1496,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .map(([brand, grams]) => ({ brand, grams }))
     .sort((a, b) => b.grams - a.grams);
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
+  const productionRecords = records.filter((record) => record.status === "confirmado");
+  const tableRecords =
+    activeSection === "production"
+      ? productionRecords
+      : activeSection === "reports"
+        ? monthlyRecords
+        : records;
+  const historyTitle =
+    activeSection === "production"
+      ? "Producción"
+      : activeSection === "reports"
+        ? "Reporte mensual"
+        : "Cotizaciones";
+  const HistoryIcon = activeSection === "production" ? Factory : History;
+  const isReportView = activeSection === "reports";
   const topProducts = Object.entries(monthlyProductTotals)
     .map(([name, total]) => ({ name, total }))
     .sort((a, b) => b.total - a.total)
@@ -1533,30 +1562,42 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           <p className="text-gray-600 text-lg">Calcula precios y gestiona tu negocio de impresión 3D</p>
         </motion.div>
 
-        <div className="flex justify-center mb-6">
-          <div className="bg-white rounded-full p-1 shadow-lg flex gap-2">
-            <button
-              onClick={() => setActiveTab("calculator")}
-              className={`px-6 py-3 rounded-full font-semibold transition-all flex items-center gap-2 ${
-                activeTab === "calculator" ? "bg-blue-500 text-white shadow-md" : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              <Calculator size={20} />
-              Calculadora
-            </button>
-            <button
-              onClick={() => setActiveTab("history")}
-              className={`px-6 py-3 rounded-full font-semibold transition-all flex items-center gap-2 ${
-                activeTab === "history" ? "bg-blue-500 text-white shadow-md" : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              <History size={20} />
-              Historial
-            </button>
-          </div>
-        </div>
-        <AnimatePresence mode="wait">
-          {activeTab === "calculator" ? (
+        <div className="flex gap-6">
+          <aside className="w-56 shrink-0">
+            <div className="bg-white rounded-2xl shadow-lg p-3 space-y-2">
+              {(
+                [
+                  { id: "calculator", label: "Calculadora", icon: Calculator },
+                  { id: "quotations", label: "Cotizaciones", icon: FileText },
+                  { id: "production", label: "Producción", icon: Factory },
+                  { id: "stock", label: "Stock", icon: Package },
+                  { id: "reports", label: "Reportes", icon: BarChart3 },
+                  { id: "profitability", label: "Rentabilidad", icon: TrendingUp },
+                  { id: "branding", label: "Branding", icon: Palette },
+                  { id: "settings", label: "Configuración", icon: Settings },
+                ] as const
+              ).map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveSection(item.id)}
+                    className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
+                      isActive ? "bg-blue-500 text-white shadow-md" : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    <Icon size={18} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+          <main className="flex-1">
+            <AnimatePresence mode="wait">
+              {activeSection === "calculator" ? (
             <motion.div
               key="calculator"
               initial={{ opacity: 0, x: -20 }}
@@ -1972,11 +2013,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               exit={{ opacity: 0, x: -20 }}
               className="max-w-7xl mx-auto"
             >
-              <div className="grid md:grid-cols-4 gap-4 mb-6">
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white"
-                >
+              {activeSection === "reports" && (
+                <div className="grid md:grid-cols-4 gap-4 mb-6">
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white"
+                  >
                   <div className="flex items-center justify-between mb-2">
                     <Box size={32} />
                     <span className="text-3xl font-bold">{totalToys}</span>
@@ -2017,8 +2059,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   <p className="text-sm font-medium opacity-90">Más rentable</p>
                 </motion.div>
               </div>
+              )}
 
-              {categoryData.length > 0 && (
+              {activeSection === "reports" && categoryData.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2047,13 +2090,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </motion.div>
               )}
 
-              <div className="bg-white rounded-3xl shadow-2xl p-8">
+              {(activeSection === "quotations" ||
+                activeSection === "production" ||
+                activeSection === "reports") && (
+                <div className="bg-white rounded-3xl shadow-2xl p-8">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                   <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                    <History size={28} className="text-blue-500" />
-                    Historial de Productos
+                    <HistoryIcon size={28} className="text-blue-500" />
+                    {historyTitle}
                   </h2>
-                  <div className="flex flex-wrap items-center gap-3">
+                  {activeSection === "reports" && (
+                    <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-2">
                       <select
                         value={reportMonth}
@@ -2079,7 +2126,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       </select>
                       <button
                         onClick={exportMonthlyReportPdf}
-                        disabled={records.length === 0}
+                        disabled={monthlyRecords.length === 0}
                         className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                       >
                         <Download size={18} />
@@ -2088,7 +2135,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     </div>
                     <button
                       onClick={exportToCSV}
-                      disabled={records.length === 0}
+                      disabled={monthlyRecords.length === 0}
                       className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                     >
                       <Download size={18} />
@@ -2103,9 +2150,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       Borrar historial
                     </button>
                   </div>
+                  )}
                 </div>
 
-                {records.length === 0 ? (
+                {tableRecords.length === 0 ? (
                   <div className="text-center py-16">
                     <Box size={64} className="text-gray-300 mx-auto mb-4" />
                     <p className="text-gray-400 text-lg">No hay registros todavía</p>
@@ -2128,7 +2176,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {records.map((record, index) => (
+                        {tableRecords.map((record, index) => (
                           <motion.tr
                             key={record.id}
                             initial={{ opacity: 0, y: 10 }}
@@ -2136,6 +2184,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             transition={{ delay: index * 0.05 }}
                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                             onClick={(event) => {
+                              if (activeSection !== "quotations") return;
                               // Historial shortcut: Alt + click = duplicar cálculo.
                               if (event.altKey) {
                                 if (record.status === "cotizado") {
@@ -2211,7 +2260,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     )}
                                   </button>
                                 </div>
-                                {record.status === "cotizado" && (
+                                {!isReportView && record.status === "cotizado" && (
                                   <>
                                     <button
                                       type="button"
@@ -2251,7 +2300,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     </button>
                                   </>
                                 )}
-                                {record.status === "confirmado" && (
+                                {!isReportView && record.status === "confirmado" && (
                                   <button
                                     type="button"
                                     onClick={(event) => {
@@ -2274,25 +2323,27 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   </div>
                 )}
               </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        <section className="max-w-5xl mx-auto mt-10">
-          <div className="bg-white rounded-3xl shadow-2xl p-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-800">Stock de material</h2>
-                <p className="text-sm text-gray-600">Gestioná spools y controlá el gramaje disponible.</p>
+        {activeSection === "stock" && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Stock de material</h2>
+                  <p className="text-sm text-gray-600">Gestioná spools y controlá el gramaje disponible.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddSpoolClick}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                >
+                  Agregar spool
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleAddSpoolClick}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
-              >
-                Agregar spool
-              </button>
-            </div>
 
             {stockNotice && <p className="text-sm text-red-500 mb-4">{stockNotice}</p>}
 
@@ -2504,10 +2555,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
 
-        {SHOW_PROFITABILITY_SECTION && (
+        {activeSection === "profitability" && SHOW_PROFITABILITY_SECTION && (
           <section className="max-w-5xl mx-auto mt-10">
             <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2648,9 +2700,42 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             </div>
           </section>
         )}
+        {activeSection === "profitability" && !SHOW_PROFITABILITY_SECTION && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <h2 className="text-2xl font-bold text-gray-800">Rentabilidad</h2>
+              <p className="mt-2 text-sm text-gray-600">Esta sección estará disponible muy pronto.</p>
+            </div>
+          </section>
+        )}
 
-        <section className="max-w-5xl mx-auto mt-10">
-          <div className="bg-white rounded-3xl shadow-2xl p-8">
+        {activeSection === "branding" && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <h2 className="text-2xl font-bold text-gray-800">Branding</h2>
+              <p className="mt-2 text-sm text-gray-600">Personalizá logo y colores de tus cotizaciones.</p>
+              <div className="mt-6 rounded-2xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                Próximamente vas a poder ajustar tu identidad visual desde aquí.
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeSection === "settings" && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <h2 className="text-2xl font-bold text-gray-800">Configuración</h2>
+              <p className="mt-2 text-sm text-gray-600">Ajustes generales de la app.</p>
+              <div className="mt-6 rounded-2xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                Sección en construcción.
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeSection === "branding" && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">Funciones PRO (en desarrollo)</h2>
@@ -2802,8 +2887,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               </div>
             </div>
 
-          </div>
-        </section>
+            </div>
+          </section>
+        )}
+          </main>
+        </div>
       </div>
       {isConfirmModalOpen && confirmTarget && (
         <div
