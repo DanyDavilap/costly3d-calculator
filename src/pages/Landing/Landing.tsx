@@ -89,15 +89,31 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             <div className="grid three">
               <article className="card feature">
                 <h3>Desglose de costos</h3>
-                <p>Calcula materiales, tiempo, energía y margen con totales claros y configurables.</p>
+                <ul className="card-points">
+                  <li>★ Materiales y consumos</li>
+                  <li>★ Tiempo y energía</li>
+                  <li>★ Margen configurable</li>
+                  <li>★ Totales claros</li>
+                </ul>
+                <p className="card-foot">Calcula materiales, tiempo, energía y margen con totales claros y configurables.</p>
               </article>
               <article className="card feature">
                 <h3>Historial de cálculos</h3>
-                <p>Guarda, edita y reutiliza cotizaciones para cada producto o variante.</p>
+                <ul className="card-points">
+                  <li>★ Guardá cotizaciones</li>
+                  <li>★ Editá resultados</li>
+                  <li>★ Reutilizá variantes</li>
+                </ul>
+                <p className="card-foot">Guarda, edita y reutiliza cotizaciones para cada producto o variante.</p>
               </article>
               <article className="card feature">
                 <h3>Stock y categorías</h3>
-                <p>Controla disponibilidad y organiza productos por rubro o tipo.</p>
+                <ul className="card-points">
+                  <li>★ Control de stock</li>
+                  <li>★ Orden por rubro</li>
+                  <li>★ Categorías claras</li>
+                </ul>
+                <p className="card-foot">Controla disponibilidad y organiza productos por rubro o tipo.</p>
               </article>
             </div>
           </section>
@@ -201,19 +217,39 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             <div className="grid two">
               <div className="card benefit">
                 <h3>Costos reales</h3>
-                <p>Deja de subcotizar o perder margen usando una base clara y consistente de costos reales.</p>
+                <ul className="card-points">
+                  <li>★ Base de costos real</li>
+                  <li>★ Evitá subcotizar</li>
+                  <li>★ Margen consistente</li>
+                </ul>
+                <p className="card-foot">Deja de subcotizar o perder margen usando una base clara y consistente de costos reales.</p>
               </div>
               <div className="card benefit">
                 <h3>Pensado para vender</h3>
-                <p>Ideal si cotizas por encargo, vendes por redes o produces en series pequeñas.</p>
+                <ul className="card-points">
+                  <li>★ Cotizá por encargo</li>
+                  <li>★ Vendé por redes</li>
+                  <li>★ Series pequeñas</li>
+                </ul>
+                <p className="card-foot">Ideal si cotizas por encargo, vendes por redes o produces en series pequeñas.</p>
               </div>
               <div className="card benefit">
                 <h3>Multi-categoría</h3>
-                <p>Gestiona juguetes, accesorios, piezas, decoración y productos personalizados.</p>
+                <ul className="card-points">
+                  <li>★ Juguetes y accesorios</li>
+                  <li>★ Piezas y decoración</li>
+                  <li>★ Personalizados</li>
+                </ul>
+                <p className="card-foot">Gestiona juguetes, accesorios, piezas, decoración y productos personalizados.</p>
               </div>
               <div className="card benefit">
                 <h3>Historial reutilizable</h3>
-                <p>Convierte cada cálculo en una base sólida para nuevas cotizaciones.</p>
+                <ul className="card-points">
+                  <li>★ Guardá cada cálculo</li>
+                  <li>★ Reutilizá cotizaciones</li>
+                  <li>★ Versiones listas</li>
+                </ul>
+                <p className="card-foot">Convierte cada cálculo en una base sólida para nuevas cotizaciones.</p>
               </div>
             </div>
           </section>

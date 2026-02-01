@@ -326,6 +326,39 @@
 .landing .feature,
 .landing .benefit {
   padding: 1.5rem;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+  color: #ffffff;
+  border: 0;
+}
+
+.landing .feature h3,
+.landing .benefit h3 {
+  margin: 0 0 0.85rem;
+  font-size: 1.1rem;
+  color: #ffffff;
+}
+
+.landing .card-points {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.landing .card-points li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.landing .card-foot {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.5;
 }
 
 .landing .cta {

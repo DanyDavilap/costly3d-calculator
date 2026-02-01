@@ -8,21 +8,22 @@ import Landing from "./pages/Landing/Landing";
 export default function App() {
   const [view, setView] = useState<"landing" | "app">("landing");
   const [isProModalOpen, setIsProModalOpen] = useState(false);
-  const [proModalSource, setProModalSource] = useState<"free_limit" | "cta" | null>(null);
+  const [proModalSource, setProModalSource] = useState<"limit" | "cta" | null>(null);
   const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState("");
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
 
-  const openProModal = (source: "free_limit" | "cta" = "cta") => {
+  const openProModal = (source: "limit" | "cta" = "cta") => {
+    // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por límite FREE.
     // Punto único de entrada PRO: se reutiliza tanto por límite FREE como por CTA manual.
     setProModalSource(source);
     setIsProModalOpen(true);
   };
 
   useEffect(() => {
-    if (!isProModalOpen || proModalSource !== "free_limit") return;
+    if (!isProModalOpen || proModalSource !== "limit") return;
     let alreadyTracked = false;
     try {
       alreadyTracked = sessionStorage.getItem(FREE_LIMIT_EVENT_KEY) === "1";
@@ -94,9 +95,11 @@ export default function App() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Tu negocio 3D está creciendo</h2>
-                <p className="mt-3 text-sm text-gray-600">
-                  Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
-                </p>
+                {proModalSource === "limit" && (
+                  <p className="mt-3 text-sm text-gray-600">
+                    Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
+                  </p>
+                )}
                 <p className="mt-3 text-sm text-gray-600">
                   La versión PRO está pensada para makers y talleres que quieren dejar de improvisar precios y empezar
                   a escalar con claridad.

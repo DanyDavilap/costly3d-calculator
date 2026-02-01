@@ -325,7 +325,7 @@ const isValidBreakdown = (breakdown: PricingBreakdown) =>
   Object.values(breakdown).every((value) => isFiniteNumber(value));
 
 type DashboardProps = {
-  onOpenProModal?: (source?: "free_limit" | "cta") => void;
+  onOpenProModal?: (source?: "limit" | "cta") => void;
 };
 
 function Dashboard({ onOpenProModal }: DashboardProps) {
@@ -644,7 +644,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const isGrowing = newRecords.length > records.length;
     if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
       // Punto único de entrada PRO: mismo modal para límite FREE y CTA manual.
-      handleOpenProModal("free_limit");
+      handleOpenProModal("limit");
       return false;
     }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
