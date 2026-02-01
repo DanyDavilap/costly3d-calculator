@@ -1,6 +1,9 @@
+import { calculatePrintCost } from "../core/calculatePrintCost";
+
 export interface CostInputs {
   timeMinutes: number;
   materialGrams: number;
+  assemblyMinutes?: number;
 }
 
 export interface CalculationParams {
@@ -30,8 +33,6 @@ export interface CalculationResult {
   breakdown: CalculationBreakdown;
 }
 
-const roundCurrency = (value: number) => Math.round(value);
-
 export function calculateCost({
   inputs,
   params,
@@ -39,29 +40,23 @@ export function calculateCost({
   inputs: CostInputs;
   params: CalculationParams;
 }): CalculationResult {
-  const hours = inputs.timeMinutes / 60;
-
-  const materialCost = (inputs.materialGrams / 1000) * params.filamentCostPerKg;
-  const energyCost = (params.powerWatts / 1000) * hours * params.energyCostPerKwh;
-  const laborCost = hours * params.laborPerHour;
-
-  const baseCost = materialCost + energyCost + laborCost;
-  const wearCost = baseCost * (params.wearPercent / 100);
-  const operationalCost = baseCost * (params.operationalPercent / 100);
-
-  const subtotal = baseCost + wearCost + operationalCost;
-  const profit = subtotal * (params.profitPercent / 100);
-  const total = subtotal + profit;
-
+  const coreBreakdown = calculatePrintCost({
+    inputs: {
+      timeMinutes: inputs.timeMinutes,
+      materialGrams: inputs.materialGrams,
+      assemblyMinutes: inputs.assemblyMinutes ?? 0,
+    },
+    params,
+  });
   const breakdown: CalculationBreakdown = {
-    materialCost: roundCurrency(materialCost),
-    energyCost: roundCurrency(energyCost),
-    laborCost: roundCurrency(laborCost),
-    wearCost: roundCurrency(wearCost),
-    operationalCost: roundCurrency(operationalCost),
-    subtotal: roundCurrency(subtotal),
-    profit: roundCurrency(profit),
-    total: roundCurrency(total),
+    materialCost: coreBreakdown.materialCost,
+    energyCost: coreBreakdown.energyCost,
+    laborCost: coreBreakdown.laborCost,
+    wearCost: coreBreakdown.wearCost,
+    operationalCost: coreBreakdown.operatingCost,
+    subtotal: coreBreakdown.subtotal,
+    profit: coreBreakdown.profit,
+    total: coreBreakdown.totalFinal,
   };
 
   return {

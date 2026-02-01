@@ -385,6 +385,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [stockModal, setStockModal] = useState({ open: false, available: 0, required: 0 });
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
+  const [saveBanner, setSaveBanner] = useState<{
+    type: "success" | "error";
+    message: string;
+    description?: string;
+  } | null>(null);
+  const saveBannerTimerRef = useRef<number | null>(null);
   const [brand] = useState<BrandSettings>(() => loadBrandSettings());
   const now = new Date();
   const [reportMonth, setReportMonth] = useState(now.getMonth());
@@ -424,6 +430,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       if (stockHighlightTimerRef.current) {
         window.clearTimeout(stockHighlightTimerRef.current);
         stockHighlightTimerRef.current = null;
+      }
+      if (saveBannerTimerRef.current) {
+        window.clearTimeout(saveBannerTimerRef.current);
+        saveBannerTimerRef.current = null;
       }
     };
   }, []);
@@ -673,6 +683,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       isDemo: true,
     };
     persistMaterialStock(ensureUniqueDisplayNames([demoSpool]));
+  };
+
+  const showSaveBanner = (next: { type: "success" | "error"; message: string; description?: string }) => {
+    setSaveBanner(next);
+    if (saveBannerTimerRef.current) {
+      window.clearTimeout(saveBannerTimerRef.current);
+    }
+    saveBannerTimerRef.current = window.setTimeout(() => {
+      setSaveBanner(null);
+      saveBannerTimerRef.current = null;
+    }, 2800);
   };
 
   const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
@@ -2030,6 +2051,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             if (saved) {
                               toast.success("Cotización guardada correctamente. Podés verla en Cotizaciones.", {
                                 duration: 2500,
+                                action: {
+                                  label: "Ver en historial",
+                                  onClick: () => setActiveSection("quotations"),
+                                },
                               });
                             }
                           } catch (error) {

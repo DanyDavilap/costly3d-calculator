@@ -1,3 +1,5 @@
+import { calculatePrintCost } from "../core/calculatePrintCost";
+
 export interface PricingInputs {
   timeMinutes: number;
   materialGrams: number;
@@ -26,14 +28,6 @@ export interface PricingBreakdown {
   finalPrice: number;
 }
 
-const round2 = (value: number) => {
-  const rounded = Math.round((value + Number.EPSILON) * 100) / 100;
-  return Number(rounded.toFixed(2));
-};
-
-const minutesToHours = (minutes: number) => minutes / 60;
-const gramsToKg = (grams: number) => grams / 1000;
-
 export function pricingCalculator({
   inputs,
   params,
@@ -41,32 +35,17 @@ export function pricingCalculator({
   inputs: PricingInputs;
   params: PricingParams;
 }): PricingBreakdown {
-  const printHours = minutesToHours(inputs.timeMinutes);
-  const assemblyHours = minutesToHours(inputs.assemblyMinutes);
-  const materialKg = gramsToKg(inputs.materialGrams);
-
-  const materialCost = materialKg * params.filamentCostPerKg;
-  const energyCost = (params.powerWatts / 1000) * printHours * params.energyCostPerKwh;
-  const laborCost = assemblyHours * params.laborPerHour;
-
-  const baseCost = materialCost + energyCost + laborCost;
-  const wearCost = baseCost * (params.wearPercent / 100);
-  const operatingCost = baseCost * (params.operationalPercent / 100);
-
-  const subtotal = baseCost + wearCost + operatingCost;
-  const totalCost = subtotal;
-  const profit = totalCost * (params.profitPercent / 100);
-  const finalPrice = totalCost + profit;
+  const breakdown = calculatePrintCost({ inputs, params });
 
   return {
-    materialCost: round2(materialCost),
-    energyCost: round2(energyCost),
-    laborCost: round2(laborCost),
-    subtotal: round2(subtotal),
-    wearCost: round2(wearCost),
-    operatingCost: round2(operatingCost),
-    totalCost: round2(totalCost),
-    profit: round2(profit),
-    finalPrice: round2(finalPrice),
+    materialCost: breakdown.materialCost,
+    energyCost: breakdown.energyCost,
+    laborCost: breakdown.laborCost,
+    subtotal: breakdown.subtotal,
+    wearCost: breakdown.wearCost,
+    operatingCost: breakdown.operatingCost,
+    totalCost: breakdown.subtotal,
+    profit: breakdown.profit,
+    finalPrice: breakdown.totalFinal,
   };
 }
