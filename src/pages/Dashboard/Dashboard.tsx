@@ -72,6 +72,7 @@ interface FailureDetails {
 interface HistoryRecord {
   id: string;
   date: string;
+  createdAt?: string | null;
   name: string;
   productName: string;
   category: string;
@@ -88,6 +89,8 @@ interface HistoryRecord {
   status: PrintStatus;
   stockDeductedGrams?: number;
   startedAt?: string | null;
+  completedAt?: string | null;
+  reprintOfId?: string | null;
   failure?: FailureDetails | null;
   stockChanges: StockChange[];
 }
@@ -279,6 +282,11 @@ const normalizeHistoryRecord = (
   return {
     id: raw.id ?? Date.now().toString(),
     date: raw.date ?? new Date().toLocaleDateString("es-AR"),
+    createdAt:
+      (raw as HistoryRecord).createdAt ??
+      (raw as HistoryRecord).startedAt ??
+      (raw as HistoryRecord).date ??
+      new Date().toISOString(),
     name: raw.name ?? raw.productName ?? "",
     productName: raw.productName ?? raw.name ?? "",
     category: normalizedCategory,
@@ -295,6 +303,8 @@ const normalizeHistoryRecord = (
     status,
     stockDeductedGrams,
     startedAt: (raw as HistoryRecord).startedAt ?? null,
+    completedAt: (raw as HistoryRecord).completedAt ?? null,
+    reprintOfId: (raw as HistoryRecord).reprintOfId ?? null,
     failure,
     stockChanges,
   };
@@ -479,7 +489,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [isDarkMode, setIsDarkMode] = useState(() => isDarkModeEnabled());
   const devModeEnabled = isDev();
   const [devResetTarget, setDevResetTarget] = useState<
-    "all" | "stock" | "quotes" | "production" | "failed" | null
+    "all" | "stock" | "quotes" | "production" | "failed" | "seed" | null
   >(null);
 
   useEffect(() => {
@@ -516,8 +526,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setDevResetTarget(null);
   };
 
-  const runDevReset = () => {
-    if (!devResetTarget) return;
+  const resetAllDataDev = () => {
     const safeRemove = (key: string) => {
       try {
         localStorage.removeItem(key);
@@ -526,14 +535,212 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       }
     };
 
+    [PARAMS_STORAGE_KEY, HISTORY_STORAGE_KEY, STOCK_STORAGE_KEY, CATEGORY_STORAGE_KEY, MATERIAL_STOCK_KEY, BRAND_STORAGE_KEY].forEach(
+      safeRemove,
+    );
+  };
+
+  const loadDemoSeeds = () => {
+    if (!devModeEnabled) return;
+
+    closeDevResetModal();
+    resetAllDataDev();
+
+    const demoStock: MaterialSpool[] = [
+      {
+        id: "demo-pla-negro",
+        displayName: "PLA · Negro · Printalot",
+        brand: "Printalot",
+        materialType: "PLA",
+        color: { name: "Negro", hex: "#111827" },
+        gramsAvailable: 4000,
+      },
+      {
+        id: "demo-pla-blanco",
+        displayName: "PLA · Blanco · Printalot",
+        brand: "Printalot",
+        materialType: "PLA",
+        color: { name: "Blanco", hex: "#F8FAFC" },
+        gramsAvailable: 2000,
+      },
+      {
+        id: "demo-petg-gris",
+        displayName: "PETG · Gris · Bambu Lab",
+        brand: "Bambu Lab",
+        materialType: "PETG",
+        color: { name: "Gris", hex: "#9CA3AF" },
+        gramsAvailable: 1500,
+      },
+      {
+        id: "demo-pla-rojo",
+        displayName: "PLA · Rojo · Genérico",
+        brand: "Genérico",
+        materialType: "PLA",
+        color: { name: "Rojo", hex: "#EF4444" },
+        gramsAvailable: 1000,
+      },
+    ];
+
+    const toDateLabel = (date: Date) => date.toLocaleDateString("es-AR");
+    const today = new Date();
+    const dateOffsets = [3, 6, 10, 15].map((offset) => {
+      const next = new Date(today);
+      next.setDate(today.getDate() - offset);
+      return toDateLabel(next);
+    });
+
+    const buildDemoRecord = ({
+      name,
+      categoryLabel,
+      materialId,
+      grams,
+      timeMinutes,
+      assemblyMinutes,
+      status,
+      failurePercent,
+      profitPercent,
+      dateLabel,
+    }: {
+      name: string;
+      categoryLabel: string;
+      materialId: string;
+      grams: number;
+      timeMinutes: number;
+      assemblyMinutes: number;
+      status: PrintStatus;
+      failurePercent?: number;
+      profitPercent?: number;
+      dateLabel: string;
+    }): HistoryRecord => {
+      const inputs = { timeMinutes, materialGrams: grams, assemblyMinutes };
+      const paramsSnapshot = { ...params, profitPercent: profitPercent ?? params.profitPercent };
+      const breakdown = pricingCalculator({ inputs, params: paramsSnapshot });
+      const spool = demoStock.find((item) => item.id === materialId);
+      const requiredGrams = grams;
+      const isFailed = status === "finalizada_fallida";
+      const percentPrinted = Math.min(99, Math.max(0, failurePercent ?? 0));
+      const gramsLost = isFailed ? (requiredGrams * percentPrinted) / 100 : 0;
+      const failureDetails: FailureDetails | null = isFailed
+        ? {
+            date: dateLabel,
+            percentPrinted,
+            gramsLost,
+            gramsRecovered: Math.max(0, requiredGrams - gramsLost),
+            materialCostLost: (breakdown.materialCost * percentPrinted) / 100,
+            energyCostLost: (breakdown.energyCost * percentPrinted) / 100,
+            note: "Datos demo",
+          }
+        : null;
+
+      return {
+        id: `demo-${name.replace(/\s+/g, "-").toLowerCase()}-${dateLabel.replace(/\//g, "")}`,
+        date: dateLabel,
+        createdAt: new Date().toISOString(),
+        name,
+        productName: name,
+        category: categoryLabel,
+        inputs,
+        params: paramsSnapshot,
+        breakdown,
+        total: breakdown.finalPrice,
+        selectedMaterialId: materialId,
+        materialGramsUsed: requiredGrams,
+        materialType: spool?.materialType ?? null,
+        materialColorName: spool?.color?.name ?? null,
+        materialBrand: spool?.brand ?? null,
+        quantity: 1,
+        status,
+        stockDeductedGrams: isFailed ? gramsLost : status === "finalizada_ok" ? requiredGrams : 0,
+        startedAt: null,
+        completedAt: status === "finalizada_ok" || status === "finalizada_fallida" ? new Date().toISOString() : null,
+        reprintOfId: null,
+        failure: failureDetails,
+        stockChanges: [],
+      };
+    };
+
+    const demoRecords: HistoryRecord[] = [
+      buildDemoRecord({
+        name: "Llavero Dragon Ball",
+        categoryLabel: "Llaveros",
+        materialId: "demo-pla-negro",
+        grams: 80,
+        timeMinutes: 120,
+        assemblyMinutes: 10,
+        status: "finalizada_ok",
+        profitPercent: 40,
+        dateLabel: dateOffsets[0],
+      }),
+      buildDemoRecord({
+        name: "Dummy Wolverine",
+        categoryLabel: "Dummy 13",
+        materialId: "demo-pla-blanco",
+        grams: 600,
+        timeMinutes: 420,
+        assemblyMinutes: 30,
+        status: "finalizada_fallida",
+        failurePercent: 65,
+        profitPercent: 40,
+        dateLabel: dateOffsets[1],
+      }),
+      buildDemoRecord({
+        name: "Indominus Rex",
+        categoryLabel: "Juguetes",
+        materialId: "demo-petg-gris",
+        grams: 350,
+        timeMinutes: 300,
+        assemblyMinutes: 20,
+        status: "finalizada_ok",
+        profitPercent: 40,
+        dateLabel: dateOffsets[2],
+      }),
+      buildDemoRecord({
+        name: "Soporte Celular",
+        categoryLabel: "Accesorios",
+        materialId: "demo-pla-rojo",
+        grams: 120,
+        timeMinutes: 150,
+        assemblyMinutes: 12,
+        status: "cotizada",
+        profitPercent: 40,
+        dateLabel: dateOffsets[3],
+      }),
+    ];
+
+    const adjustedStock = demoStock.map((spool) => {
+      const deducted = demoRecords.reduce((sum, record) => {
+        if (record.selectedMaterialId !== spool.id) return sum;
+        if (record.status === "cotizada") return sum;
+        return sum + (record.stockDeductedGrams ?? 0);
+      }, 0);
+      return {
+        ...spool,
+        gramsAvailable: Math.max(0, spool.gramsAvailable - deducted),
+      };
+    });
+
+    persistMaterialStock(adjustedStock);
+    persistHistory(demoRecords, { allowDuplicateSignature: true });
+    setCategory("General");
+    setEditingRecordId(null);
+    toast.success("Datos demo cargados correctamente.");
+    toast.message("Datos demo — solo desarrollo.");
+  };
+
+  const runDevReset = () => {
+    if (!devResetTarget) return;
+
     if (devResetTarget === "all") {
-      [PARAMS_STORAGE_KEY, HISTORY_STORAGE_KEY, STOCK_STORAGE_KEY, CATEGORY_STORAGE_KEY, MATERIAL_STOCK_KEY, BRAND_STORAGE_KEY].forEach(
-        safeRemove,
-      );
+      resetAllDataDev();
     }
 
     if (devResetTarget === "stock") {
-      [MATERIAL_STOCK_KEY, STOCK_STORAGE_KEY].forEach(safeRemove);
+      try {
+        localStorage.removeItem(MATERIAL_STOCK_KEY);
+        localStorage.removeItem(STOCK_STORAGE_KEY);
+      } catch (error) {
+        // Ignore storage errors.
+      }
     }
 
     if (devResetTarget === "quotes" || devResetTarget === "production" || devResetTarget === "failed") {
@@ -549,6 +756,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
 
     closeDevResetModal();
+    if (devResetTarget === "seed") {
+      return;
+    }
     window.location.reload();
   };
 
@@ -1147,26 +1357,29 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   }): HistoryRecord => {
     const materialSnapshot = getSelectedMaterialSnapshot();
     return {
-    id: recordId ?? Date.now().toString(),
-    date: new Date().toLocaleDateString("es-AR"),
-    name: toyName || "Sin nombre",
-    productName: toyName || "Sin nombre",
-    category: category.trim() || "General",
-    inputs,
-    params: paramsSnapshot,
-    breakdown,
-    total: breakdown.finalPrice,
-    selectedMaterialId: selectedMaterialId || "",
-    materialGramsUsed: selectedMaterialId ? inputs.materialGrams * 1 : 0,
-    materialType: selectedMaterialId ? materialSnapshot.materialType : null,
-    materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
-    materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
-    quantity: 1,
-    status: "cotizada",
-    stockDeductedGrams: 0,
-    startedAt: null,
-    failure: null,
-    stockChanges: [],
+      id: recordId ?? Date.now().toString(),
+      date: new Date().toLocaleDateString("es-AR"),
+      createdAt: new Date().toISOString(),
+      name: toyName || "Sin nombre",
+      productName: toyName || "Sin nombre",
+      category: category.trim() || "General",
+      inputs,
+      params: paramsSnapshot,
+      breakdown,
+      total: breakdown.finalPrice,
+      selectedMaterialId: selectedMaterialId || "",
+      materialGramsUsed: selectedMaterialId ? inputs.materialGrams * 1 : 0,
+      materialType: selectedMaterialId ? materialSnapshot.materialType : null,
+      materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
+      materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
+      quantity: 1,
+      status: "cotizada",
+      stockDeductedGrams: 0,
+      startedAt: null,
+      completedAt: null,
+      reprintOfId: null,
+      failure: null,
+      stockChanges: [],
     };
   };
 
@@ -1387,7 +1600,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
   const getRequiredGramsForRecord = (record: HistoryRecord) => {
     const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
-    if (typeof record.materialGramsUsed === "number" && Number.isFinite(record.materialGramsUsed)) {
+    if (
+      typeof record.materialGramsUsed === "number" &&
+      Number.isFinite(record.materialGramsUsed) &&
+      record.materialGramsUsed > 0
+    ) {
       return record.materialGramsUsed;
     }
     return record.inputs.materialGrams * quantity;
@@ -1416,7 +1633,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
     const nextRecords = records.map((record) =>
       record.id === confirmTarget.id
-        ? { ...record, status: "en_produccion" as const, stockDeductedGrams: 0, startedAt: null }
+        ? {
+            ...record,
+            status: "en_produccion" as const,
+            stockDeductedGrams: 0,
+            startedAt: null,
+            completedAt: null,
+          }
         : record,
     );
     persistHistory(nextRecords);
@@ -1466,6 +1689,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       return {
         ...item,
         startedAt: new Date().toISOString(),
+        completedAt: null,
         stockDeductedGrams: isDemoSpool ? 0 : required,
         selectedMaterialId: spool?.id ?? selectedId,
         materialType: spool?.materialType ?? record.materialType ?? null,
@@ -1481,7 +1705,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     if (record.status !== "en_produccion") return;
     if (!record.startedAt) return;
     const nextRecords = records.map((item) =>
-      item.id === record.id ? { ...item, status: "finalizada_ok" as const } : item,
+      item.id === record.id
+        ? { ...item, status: "finalizada_ok" as const, completedAt: new Date().toISOString() }
+        : item,
     );
     persistHistory(nextRecords);
   };
@@ -1540,6 +1766,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             status: "finalizada_fallida" as const,
             failure: failureDetails,
             stockDeductedGrams: isDemoSpool ? 0 : gramsLost,
+            completedAt: new Date().toISOString(),
           }
         : item,
     );
@@ -1582,14 +1809,37 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ...record,
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
+      createdAt: new Date().toISOString(),
       status: "cotizada",
       stockDeductedGrams: 0,
       startedAt: null,
+      completedAt: null,
+      reprintOfId: null,
       failure: null,
       stockChanges: [],
       materialGramsUsed,
     };
     persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+  };
+
+  const duplicateProduction = (record: HistoryRecord) => {
+    if (record.status !== "finalizada_ok" && record.status !== "finalizada_fallida") return;
+    const duplicated: HistoryRecord = {
+      ...record,
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString("es-AR"),
+      createdAt: new Date().toISOString(),
+      status: "en_produccion",
+      stockDeductedGrams: 0,
+      startedAt: null,
+      completedAt: null,
+      reprintOfId: record.id,
+      failure: null,
+      stockChanges: [],
+      materialGramsUsed: 0,
+    };
+    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    toast.success("Reimpresión creada. Ajustá y comenzá cuando quieras.");
   };
 
   const deleteRecord = (record: HistoryRecord) => {
@@ -1709,7 +1959,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   });
 
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
-  const productionRecords = records.filter((record) => record.status === "en_produccion");
+  const productionRecords = records.filter(
+    (record) =>
+      record.status === "en_produccion" ||
+      record.status === "finalizada_ok" ||
+      record.status === "finalizada_fallida",
+  );
   const tableRecords =
     activeSection === "production"
       ? productionRecords
@@ -2925,39 +3180,44 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </td>
                             <td className="py-4 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <div className="relative inline-flex" title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}>
-                                  {!isProEnabled && (
-                                    <button
-                                      type="button"
-                                      className="absolute inset-0 cursor-not-allowed"
-                                      onClick={(event) => event.stopPropagation()}
-                                      aria-label="Disponible en Costly3D PRO"
-                                    />
-                                  )}
-                                  <button
-                                    type="button"
-                                    disabled={!isProEnabled}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      if (!isProEnabled) return;
-                                      exportRecordPdf(record);
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                {activeSection === "quotations" && (
+                                  <div
+                                    className="relative inline-flex"
                                     title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}
                                   >
-                                {isProEnabled ? (
-                                      <>
-                                        <Download size={14} />
-                                        PDF
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Lock size={14} />
-                                        PRO
-                                      </>
+                                    {!isProEnabled && (
+                                      <button
+                                        type="button"
+                                        className="absolute inset-0 cursor-not-allowed"
+                                        onClick={(event) => event.stopPropagation()}
+                                        aria-label="Disponible en Costly3D PRO"
+                                      />
                                     )}
-                                  </button>
-                                </div>
+                                    <button
+                                      type="button"
+                                      disabled={!isProEnabled}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (!isProEnabled) return;
+                                        exportRecordPdf(record);
+                                      }}
+                                      className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                      title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}
+                                    >
+                                      {isProEnabled ? (
+                                        <>
+                                          <Download size={14} />
+                                          PDF
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Lock size={14} />
+                                          PRO
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
                                 {!isReportView && record.status === "cotizada" && (
                                   <>
                                     <button
@@ -3043,6 +3303,22 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     )}
                                   </>
                                 )}
+                                {!isReportView &&
+                                  activeSection === "production" &&
+                                  (record.status === "finalizada_ok" || record.status === "finalizada_fallida") && (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        duplicateProduction(record);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                      aria-label="Duplicar impresión"
+                                      title="Duplicar impresión"
+                                    >
+                                      🔁
+                                    </button>
+                                  )}
                               </div>
                             </td>
                           </motion.tr>
@@ -3665,6 +3941,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <button
                         type="button"
+                        onClick={() => setDevResetTarget("seed")}
+                        className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+                      >
+                        Cargar datos demo
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setDevResetTarget("all")}
                         className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 transition"
                       >
@@ -3886,6 +4169,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               Esta acción eliminará datos de forma permanente. No se puede deshacer.
             </p>
             <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+              {devResetTarget === "seed" && "Se borrarán los datos actuales y se cargarán los datos demo."}
               {devResetTarget === "all" && "Se borrarán todos los datos locales de la calculadora."}
               {devResetTarget === "stock" && "Se borrará todo el stock y los ajustes de inventario."}
               {devResetTarget === "quotes" && "Se eliminarán todas las cotizaciones (estado cotizada)."}
@@ -3902,10 +4186,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               </button>
               <button
                 type="button"
-                onClick={runDevReset}
+                onClick={devResetTarget === "seed" ? loadDemoSeeds : runDevReset}
                 className="bg-red-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-red-600 transition-all"
               >
-                Confirmar reset
+                {devResetTarget === "seed" ? "Cargar datos demo" : "Confirmar reset"}
               </button>
             </div>
           </div>
