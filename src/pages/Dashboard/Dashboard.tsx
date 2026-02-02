@@ -31,7 +31,7 @@ import {
   PricingInputs,
   PricingParams,
 } from "../../utils/pricingCalculator";
-import { calculateProfitability } from "../../utils/profitability";
+import { analisisRentabilidad, type ProductoRentabilidadInput } from "../../utils/analisisRentabilidad";
 import {
   generarReporteMensual,
   type ConsumoMensual,
@@ -117,7 +117,7 @@ const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const MATERIAL_STOCK_KEY = "materialStock";
 const FREE_PRODUCT_LIMIT = 3;
-const SHOW_PROFITABILITY_SECTION = false;
+const SHOW_PROFITABILITY_SECTION = true;
 const MONTH_NAMES = [
   "enero",
   "febrero",
@@ -514,30 +514,141 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     showStockOnboarding &&
     (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
 
-  const profitability = useMemo(
-    () => calculateProfitability(records.filter((record) => record.status !== "finalizada_fallida")),
-    [records],
-  );
-  const hasProfitabilityData = profitability.entries.length > 0;
+  const rentabilidadData = useMemo(() => {
+    const productMap = new Map<
+      string,
+      {
+        nombre: string;
+        categoria: string;
+        ingresos: number;
+        cantidad: number;
+        costoFilamento: number;
+        costoEnergia: number;
+        costoFallos: number;
+        otrosCostos: number;
+      }
+    >();
+
+    records.forEach((record) => {
+      const nombre = record.productName || record.name || "Producto";
+      const categoria = record.category || "General";
+      const current = productMap.get(nombre) ?? {
+        nombre,
+        categoria,
+        ingresos: 0,
+        cantidad: 0,
+        costoFilamento: 0,
+        costoEnergia: 0,
+        costoFallos: 0,
+        otrosCostos: 0,
+      };
+
+      if (record.status === "finalizada_ok") {
+        const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+        const price = record.total || record.breakdown.finalPrice;
+        current.ingresos += price * quantity;
+        current.cantidad += quantity;
+        current.costoFilamento += record.breakdown.materialCost * quantity;
+        current.costoEnergia += record.breakdown.energyCost * quantity;
+        current.otrosCostos +=
+          (record.breakdown.laborCost + record.breakdown.wearCost + record.breakdown.operatingCost) * quantity;
+      }
+
+      if (record.status === "finalizada_fallida") {
+        current.costoFallos += (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0);
+      }
+
+      productMap.set(nombre, current);
+    });
+
+    const productosInput: ProductoRentabilidadInput[] = Array.from(productMap.values()).map((item) => ({
+      nombre: item.nombre,
+      precioVenta: item.cantidad > 0 ? item.ingresos / item.cantidad : 0,
+      cantidadVendida: item.cantidad,
+      costoFilamento: item.costoFilamento,
+      costoEnergia: item.costoEnergia,
+      costoFallos: item.costoFallos,
+      otrosCostos: item.otrosCostos,
+      incluirCostosFijos: false,
+    }));
+
+    return {
+      analisis: analisisRentabilidad(productosInput, 0),
+      categorias: new Map(Array.from(productMap.entries()).map(([key, value]) => [key, value.categoria])),
+    };
+  }, [records]);
+
+  const rentabilidadEntries = rentabilidadData.analisis.productosConGanancia;
+  const totalRentabilidadIngresos = rentabilidadEntries.reduce((sum, item) => sum + item.ingresoTotal, 0);
+  const totalRentabilidadGanancia = rentabilidadEntries.reduce((sum, item) => sum + item.gananciaNeta, 0);
+  const averageRentabilidadMargin =
+    totalRentabilidadIngresos > 0 ? (totalRentabilidadGanancia / totalRentabilidadIngresos) * 100 : 0;
+
+  const topByProfit = rentabilidadData.analisis.rankingGanancia.map((item) => ({
+    key: item.nombre,
+    productName: item.nombre,
+    category: rentabilidadData.categorias.get(item.nombre) ?? "General",
+    revenue: item.ingresoTotal,
+    cost: item.costoTotal,
+    profit: item.gananciaNeta,
+    margin: item.margenReal,
+  }));
+  const topByMargin = rentabilidadData.analisis.rankingMargen.map((item) => ({
+    key: item.nombre,
+    productName: item.nombre,
+    category: rentabilidadData.categorias.get(item.nombre) ?? "General",
+    revenue: item.ingresoTotal,
+    cost: item.costoTotal,
+    profit: item.gananciaNeta,
+    margin: item.margenReal,
+  }));
+  const rentabilidadMostProfitable = topByProfit[0] ?? null;
+
+  const recentQuotes = useMemo(() => {
+    const entries = records
+      .filter((record) => record.status === "finalizada_ok")
+      .map((record) => {
+        const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+        const revenue = (record.total || record.breakdown.finalPrice) * quantity;
+        const cost = record.breakdown.totalCost * quantity;
+        const profit = revenue - cost;
+        const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+        const timestamp = parseRecordDate(record.date)?.getTime() ?? 0;
+        return {
+          id: record.id,
+          date: record.date,
+          productName: record.productName || record.name || "Producto",
+          category: record.category || "General",
+          revenue,
+          cost,
+          profit,
+          margin,
+          timestamp,
+        };
+      });
+    return entries.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+  }, [records]);
+
+  const hasProfitabilityData = rentabilidadEntries.length > 0;
   const previewTopByProfit =
-    profitability.topByProfit.length > 0
-      ? profitability.topByProfit
+    topByProfit.length > 0
+      ? topByProfit
       : [
           { key: "preview-profit-1", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
           { key: "preview-profit-2", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
           { key: "preview-profit-3", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
         ];
   const previewTopByMargin =
-    profitability.topByMargin.length > 0
-      ? profitability.topByMargin
+    topByMargin.length > 0
+      ? topByMargin
       : [
           { key: "preview-margin-1", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
           { key: "preview-margin-2", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
           { key: "preview-margin-3", productName: "—", category: "—", revenue: 0, cost: 0, profit: 0, margin: 0 },
         ];
   const previewRecentQuotes =
-    profitability.recentQuotes.length > 0
-      ? profitability.recentQuotes
+    recentQuotes.length > 0
+      ? recentQuotes
       : [
           {
             id: "preview-quote-1",
@@ -1186,7 +1297,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }).format(amount);
   };
 
-  const parseRecordDate = (value: string) => {
+  function parseRecordDate(value: string) {
     const normalized = value.trim();
     if (!normalized) return null;
     const parts = normalized.split(/[\/\-]/);
@@ -1201,7 +1312,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
     const fallback = new Date(normalized);
     return Number.isNaN(fallback.getTime()) ? null : fallback;
-  };
+  }
 
   const handleParamChange = <K extends keyof PricingParams>(key: K, value: string) => {
     const numericValue = parseFloat(value);
@@ -1447,7 +1558,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
   const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
   const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
-  const mostProfitable =
+  const mostProfitableReport =
     revenueRecords.length > 0
       ? revenueRecords.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), revenueRecords[0])
       : null;
@@ -2292,7 +2403,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Sparkles size={32} />
-                    <span className="text-sm font-bold">{mostProfitable?.name || "N/A"}</span>
+                    <span className="text-sm font-bold">{mostProfitableReport?.name || "N/A"}</span>
                   </div>
                   <p className="text-sm font-medium opacity-90">Más rentable</p>
                 </motion.div>
@@ -3157,23 +3268,23 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Ganancia total</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
-                        {isProEnabled ? formatCurrency(profitability.totalProfit) : "—"}
+                        {isProEnabled ? formatCurrency(totalRentabilidadGanancia) : "—"}
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Margen promedio</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
-                        {isProEnabled ? formatPercent(profitability.averageMargin) : "—"}
+                        {isProEnabled ? formatPercent(averageRentabilidadMargin) : "—"}
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Producto más rentable</p>
                       <p className="mt-2 text-lg font-semibold text-gray-800">
-                        {isProEnabled ? profitability.mostProfitable?.productName || "—" : "—"}
+                        {isProEnabled ? rentabilidadMostProfitable?.productName || "—" : "—"}
                       </p>
                       <p className="text-sm text-gray-500">
-                        {isProEnabled && profitability.mostProfitable
-                          ? formatCurrency(profitability.mostProfitable.profit)
+                        {isProEnabled && rentabilidadMostProfitable
+                          ? formatCurrency(rentabilidadMostProfitable.profit)
                           : "—"}
                       </p>
                     </div>
@@ -3183,7 +3294,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por ganancia</h3>
                       <div className="space-y-3 text-sm">
-                        {(isProEnabled ? profitability.topByProfit : previewTopByProfit).map((item) => (
+                        {(isProEnabled ? topByProfit : previewTopByProfit).map((item) => (
                           <div key={item.key} className="flex items-center justify-between">
                             <div>
                               <p className="font-semibold text-gray-800">{item.productName}</p>
@@ -3204,7 +3315,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por margen</h3>
                       <div className="space-y-3 text-sm">
-                        {(isProEnabled ? profitability.topByMargin : previewTopByMargin).map((item) => (
+                        {(isProEnabled ? topByMargin : previewTopByMargin).map((item) => (
                           <div key={item.key} className="flex items-center justify-between">
                             <div>
                               <p className="font-semibold text-gray-800">{item.productName}</p>
@@ -3238,7 +3349,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           </tr>
                         </thead>
                         <tbody>
-                          {(isProEnabled ? profitability.recentQuotes : previewRecentQuotes).map((item) => (
+                          {(isProEnabled ? recentQuotes : previewRecentQuotes).map((item) => (
                             <tr key={item.id} className="border-t border-gray-200">
                               <td className="py-2 text-gray-600">{item.date}</td>
                               <td className="py-2 font-semibold text-gray-800">{item.productName}</td>
