@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { track } from "@vercel/analytics";
 import { Toaster } from "sonner";
@@ -17,11 +17,23 @@ export default function App() {
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const devMode = isDev();
-  const devForcePro = devMode && import.meta.env.VITE_DEV_FORCE_PRO === "true";
+  const devForcePro = devMode;
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    try {
+      if (localStorage.getItem("costly3d_dev_mode") !== "true") {
+        localStorage.setItem("costly3d_dev_mode", "true");
+        window.location.reload();
+      }
+    } catch (error) {
+      // Ignore storage errors to avoid blocking the app.
+    }
+  }, []);
 
   const openProModal = (source: "limit" | "cta" = "cta") => {
-    // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por límite FREE.
-    // Punto único de entrada PRO: se reutiliza tanto por límite FREE como por CTA manual.
+    // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por lÃ­mite FREE.
+    // Punto Ãºnico de entrada PRO: se reutiliza tanto por lÃ­mite FREE como por CTA manual.
     if (devForcePro) return;
     setProModalSource(source);
     setIsProModalOpen(true);
@@ -96,18 +108,18 @@ export default function App() {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Información sobre versión PRO"
+            aria-label="InformaciÃ³n sobre versiÃ³n PRO"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Acceso anticipado Costly3D PRO</h2>
                 {proModalSource === "limit" && (
                   <p className="mt-3 text-sm text-gray-600">
-                    Ya alcanzaste el límite de 3 productos en la versión gratuita de Costly3D.
+                    Ya alcanzaste el lÃ­mite de 3 productos en la versiÃ³n gratuita de Costly3D.
                   </p>
                 )}
                 <p className="mt-3 text-sm text-gray-600">
-                  Dejá de improvisar precios. Empezá a vender con claridad, consistencia y criterio profesional.
+                  DejÃ¡ de improvisar precios. EmpezÃ¡ a vender con claridad, consistencia y criterio profesional.
                 </p>
               </div>
               <button
@@ -116,20 +128,20 @@ export default function App() {
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Cerrar"
               >
-                ✕
+                âœ•
               </button>
             </div>
 
             <ul className="mt-5 space-y-2 text-sm text-gray-700">
-              <li>✔ Historial ilimitado de productos</li>
-              <li>✔ Cotizaciones claras y reutilizables</li>
-              <li>✔ Análisis real de rentabilidad</li>
-              <li>✔ Organización profesional del catálogo</li>
-              <li>✔ Mejor percepción de marca y confianza</li>
+              <li>âœ” Historial ilimitado de productos</li>
+              <li>âœ” Cotizaciones claras y reutilizables</li>
+              <li>âœ” AnÃ¡lisis real de rentabilidad</li>
+              <li>âœ” OrganizaciÃ³n profesional del catÃ¡logo</li>
+              <li>âœ” Mejor percepciÃ³n de marca y confianza</li>
             </ul>
 
             <p className="mt-5 text-sm font-medium text-gray-700">
-              Si ya estás vendiendo, Costly3D PRO te ahorra errores, tiempo y dinero.
+              Si ya estÃ¡s vendiendo, Costly3D PRO te ahorra errores, tiempo y dinero.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -149,7 +161,7 @@ export default function App() {
                 className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
                 onClick={() => setIsProModalOpen(false)}
               >
-                Probar versión gratuita
+                Probar versiÃ³n gratuita
               </button>
             </div>
           </div>
@@ -171,7 +183,7 @@ export default function App() {
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">Acceso anticipado a Costly3D PRO</h2>
                 <p className="mt-3 text-sm text-gray-600">
-                  Costly3D PRO está diseñado para makers y talleres que ya venden y quieren controlar sus costos con
+                  Costly3D PRO estÃ¡ diseÃ±ado para makers y talleres que ya venden y quieren controlar sus costos con
                   claridad.
                 </p>
                 <p className="mt-3 text-sm text-gray-600">Estamos habilitando el acceso de forma gradual.</p>
@@ -182,13 +194,13 @@ export default function App() {
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Cerrar"
               >
-                ✕
+                âœ•
               </button>
             </div>
 
             {waitlistSuccess ? (
               <div className="mt-6 rounded-2xl bg-green-50 border border-green-100 p-4 text-green-700 text-sm font-medium">
-                ¡Listo! Te avisaremos cuando Costly3D PRO esté disponible.
+                Â¡Listo! Te avisaremos cuando Costly3D PRO estÃ© disponible.
               </div>
             ) : (
               <>
@@ -223,7 +235,7 @@ export default function App() {
                   Estamos en beta. El acceso se habilita a partir de este formulario.
                 </p>
                 <p className="mt-4 text-xs text-gray-500">
-                  No enviamos spam. Te avisaremos cuando PRO esté disponible.
+                  No enviamos spam. Te avisaremos cuando PRO estÃ© disponible.
                 </p>
               </>
             )}
@@ -233,9 +245,9 @@ export default function App() {
     </>
   );
 
-  const devBadge = devForcePro ? (
+  const devBadge = devMode ? (
     <div className="fixed top-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-xs font-semibold text-white shadow-lg">
-      🛠 DEV MODE — PRO FORZADO
+      🛠 DEV MODE ACTIVADO
     </div>
   ) : null;
 
@@ -261,3 +273,5 @@ export default function App() {
     </>
   );
 }
+
+

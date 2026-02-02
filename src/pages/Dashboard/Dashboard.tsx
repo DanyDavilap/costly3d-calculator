@@ -53,7 +53,7 @@ import {
   renderHeader,
   type BrandSettings,
 } from "../../utils/pdfTheme";
-import { loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
+import { BRAND_STORAGE_KEY, loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
 import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
 
@@ -477,6 +477,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const stockHighlightTimerRef = useRef<number | null>(null);
   const reportCardsRef = useRef<HTMLDivElement | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => isDarkModeEnabled());
+  const devModeEnabled = isDev();
+  const [devResetTarget, setDevResetTarget] = useState<
+    "all" | "stock" | "quotes" | "production" | "failed" | null
+  >(null);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -506,6 +510,46 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const handleToggleDarkMode = () => {
     const next = toggleDarkMode();
     setIsDarkMode(next === "dark");
+  };
+
+  const closeDevResetModal = () => {
+    setDevResetTarget(null);
+  };
+
+  const runDevReset = () => {
+    if (!devResetTarget) return;
+    const safeRemove = (key: string) => {
+      try {
+        localStorage.removeItem(key);
+      } catch (error) {
+        // Ignore storage errors to avoid blocking the reset.
+      }
+    };
+
+    if (devResetTarget === "all") {
+      [PARAMS_STORAGE_KEY, HISTORY_STORAGE_KEY, STOCK_STORAGE_KEY, CATEGORY_STORAGE_KEY, MATERIAL_STOCK_KEY, BRAND_STORAGE_KEY].forEach(
+        safeRemove,
+      );
+    }
+
+    if (devResetTarget === "stock") {
+      [MATERIAL_STOCK_KEY, STOCK_STORAGE_KEY].forEach(safeRemove);
+    }
+
+    if (devResetTarget === "quotes" || devResetTarget === "production" || devResetTarget === "failed") {
+      const statusToRemove =
+        devResetTarget === "quotes"
+          ? "cotizada"
+          : devResetTarget === "production"
+            ? "en_produccion"
+            : "finalizada_fallida";
+      const filtered = records.filter((record) => record.status !== statusToRemove);
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(filtered));
+      localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(buildStockMap(filtered)));
+    }
+
+    closeDevResetModal();
+    window.location.reload();
   };
 
   const persistMaterialStock = (nextStock: MaterialSpool[]) => {
@@ -1549,7 +1593,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const deleteRecord = (record: HistoryRecord) => {
-    if (record.status !== "cotizada") {
+    if (record.status !== "cotizada" && !isDev()) {
       toast.info("Solo podés eliminar cotizaciones en estado cotizada.", { duration: 2500 });
       return;
     }
@@ -3603,6 +3647,60 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     </button>
                   </div>
                 </div>
+                {devModeEnabled && (
+                  <div className="rounded-2xl border border-dashed border-[color:var(--color-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-semibold text-[color:var(--color-card-text)]">
+                          DevTools
+                        </h3>
+                        <p className="mt-1 text-sm text-[color:var(--color-card-text-muted)]">
+                          Acciones destructivas solo para desarrollo.
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold text-[color:var(--color-text-muted)]">
+                        🛠 DEV MODE ACTIVADO
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setDevResetTarget("all")}
+                        className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100 transition"
+                      >
+                        Reset all data
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevResetTarget("stock")}
+                        className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 hover:bg-orange-100 transition"
+                      >
+                        Reset stock
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevResetTarget("quotes")}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        Reset cotizaciones
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevResetTarget("production")}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        Reset producciones
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevResetTarget("failed")}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        Reset fallidas
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-dashed border-[color:var(--color-border)] p-6 text-sm text-[color:var(--color-text-muted)]">
                   Seccion en construccion.
                 </div>
@@ -3771,6 +3869,48 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           </main>
         </div>
       </div>
+      {devResetTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={closeDevResetModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar reset de datos"
+          >
+            <h3 className="text-2xl font-bold text-gray-900">Confirmar reset</h3>
+            <p className="mt-3 text-sm text-gray-600">
+              Esta acción eliminará datos de forma permanente. No se puede deshacer.
+            </p>
+            <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+              {devResetTarget === "all" && "Se borrarán todos los datos locales de la calculadora."}
+              {devResetTarget === "stock" && "Se borrará todo el stock y los ajustes de inventario."}
+              {devResetTarget === "quotes" && "Se eliminarán todas las cotizaciones (estado cotizada)."}
+              {devResetTarget === "production" && "Se eliminarán todas las producciones en curso."}
+              {devResetTarget === "failed" && "Se eliminarán todas las impresiones fallidas."}
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={closeDevResetModal}
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={runDevReset}
+                className="bg-red-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-red-600 transition-all"
+              >
+                Confirmar reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {isConfirmModalOpen && confirmTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"

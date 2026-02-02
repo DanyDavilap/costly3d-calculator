@@ -2,8 +2,7 @@ import { isDev } from "./proPermissions";
 import type { BrandSettings } from "./pdfTheme";
 import type { ReporteExportData } from "./reporteExports";
 
-export const DEV_MODE_FORZADO =
-  isDev() && import.meta.env.VITE_DEV_FORCE_PRO === "true";
+export const DEV_MODE_FORZADO = isDev();
 
 export const BRANDING_ACTIVO = DEV_MODE_FORZADO;
 

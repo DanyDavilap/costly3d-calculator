@@ -126,7 +126,8 @@ export function generarReporteMensual(
     };
   });
 
-  const neto = ingresosTotal - costosFallos;
+  const costosTotalesVentas = productos.reduce((sum, item) => sum + item.costTotal, 0);
+  const neto = ingresosTotal - costosTotalesVentas;
   const margenPct = ingresosTotal > 0 ? (neto / ingresosTotal) * 100 : 0;
 
   const insights: string[] = [];

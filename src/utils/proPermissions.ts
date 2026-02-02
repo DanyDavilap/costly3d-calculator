@@ -2,22 +2,24 @@ export type UserPlan = {
   plan?: string;
 } | null;
 
-const isLocalhost = () => {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+export const DEV_MODE_STORAGE_KEY = "costly3d_dev_mode";
+
+const getStoredDevMode = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(DEV_MODE_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
 };
 
 export function isDev() {
-  return (
-    import.meta.env.DEV === true &&
-    import.meta.env.VITE_DEV_MODE === "true" &&
-    isLocalhost()
-  );
+  if (import.meta.env.DEV !== true) return false;
+  return getStoredDevMode() === "true";
 }
 
 export function isProUser(user?: UserPlan) {
-  if (isDev() && import.meta.env.VITE_DEV_FORCE_PRO === "true") {
+  if (isDev()) {
     return true;
   }
 

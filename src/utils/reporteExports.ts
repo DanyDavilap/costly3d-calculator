@@ -1,4 +1,3 @@
-import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { BrandingInfo } from "./brandingActivation";
@@ -159,34 +158,310 @@ export const exportarPDF = async (
   if (!reporteData || reporteData.detalle.length === 0) {
     throw new Error("NO_DATA");
   }
-  if (!element) {
-    throw new Error("NO_ELEMENT");
-  }
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    backgroundColor: "#ffffff",
-    useCORS: true,
-  });
-  const imgData = canvas.toDataURL("image/png");
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const imgWidth = pageWidth;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  const margin = 48;
+  const contentWidth = pageWidth - margin * 2;
+  let cursorY = margin;
 
-  let position = 0;
-  let heightLeft = imgHeight;
+  const formatMoney = (value: number) =>
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0 }).format(value);
+  const formatNumber = (value: number) =>
+    new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+  const formatPercent = (value: number) =>
+    new Intl.NumberFormat("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);
 
-  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-  heightLeft -= pageHeight;
+  const normalizeEstado = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized.includes("fall")) return "Fallida";
+    if (normalized.includes("ok")) return "OK";
+    if (normalized.includes("final")) return "OK";
+    return value || "—";
+  };
 
-  while (heightLeft > 0) {
-    position -= pageHeight;
+  const ensureSpace = (height: number) => {
+    if (cursorY + height <= pageHeight - margin) return;
     pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
+    cursorY = margin;
+  };
+
+  const drawSectionTitle = (title: string) => {
+    ensureSpace(28);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text(title, margin, cursorY);
+    cursorY += 16;
+    pdf.setDrawColor(220);
+    pdf.line(margin, cursorY, pageWidth - margin, cursorY);
+    cursorY += 12;
+  };
+
+  const drawKeyValue = (label: string, value: string, x: number, y: number) => {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.setTextColor(80);
+    pdf.text(label, x, y);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.setTextColor(0);
+    pdf.text(value, x, y + 14);
+  };
+
+  const branding = reporteData.branding;
+  const title = "Costly3D – Reporte mensual de producción y rentabilidad";
+  const businessName = branding?.name || "Costly3D";
+  const periodo = reporteData.periodoLabel;
+  const generatedDate = new Date().toLocaleDateString("es-AR");
+  const getImageFormat = (dataUrl: string) => {
+    if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";
+    if (dataUrl.startsWith("data:image/jpg")) return "JPG";
+    return "PNG";
+  };
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(16);
+  pdf.text(title, margin, cursorY);
+  cursorY += 24;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(11);
+  pdf.text(`Negocio: ${businessName}`, margin, cursorY);
+  cursorY += 16;
+  pdf.text(`Período: ${periodo}`, margin, cursorY);
+  cursorY += 16;
+  pdf.text(`Fecha de generación: ${generatedDate}`, margin, cursorY);
+
+  if (branding?.logoDataUrl) {
+    try {
+      const logoWidth = 70;
+      const logoHeight = 40;
+      pdf.addImage(
+        branding.logoDataUrl,
+        getImageFormat(branding.logoDataUrl),
+        pageWidth - margin - logoWidth,
+        margin,
+        logoWidth,
+        logoHeight,
+      );
+    } catch (error) {
+      // Ignore logo errors to avoid breaking the export.
+    }
   }
+
+  cursorY += 24;
+
+  const totalRegistros = reporteData.detalle.length;
+  const fallidas = reporteData.detalle.filter((row) => normalizeEstado(row.estado) === "Fallida").length;
+  const confirmadas = totalRegistros - fallidas;
+  const costosTotales = reporteData.detalle
+    .filter((row) => normalizeEstado(row.estado) !== "Fallida")
+    .reduce((sum, row) => sum + (row.costoTotal || 0), 0);
+
+  drawSectionTitle("Resumen ejecutivo");
+  ensureSpace(80);
+  const summaryRowY = cursorY;
+  const colGap = 18;
+  const colWidth = (contentWidth - colGap * 2) / 3;
+
+  drawKeyValue("Impresiones confirmadas", formatNumber(confirmadas), margin, summaryRowY);
+  drawKeyValue(
+    "Impresiones fallidas",
+    formatNumber(fallidas),
+    margin + colWidth + colGap,
+    summaryRowY,
+  );
+  drawKeyValue("Ingresos totales", formatMoney(reporteData.ingresos.total), margin + (colWidth + colGap) * 2, summaryRowY);
+
+  const secondRowY = summaryRowY + 40;
+  drawKeyValue("Costos totales", formatMoney(costosTotales), margin, secondRowY);
+  drawKeyValue(
+    "Ganancia neta",
+    formatMoney(reporteData.rentabilidadNeta.neto),
+    margin + colWidth + colGap,
+    secondRowY,
+  );
+  drawKeyValue(
+    "Margen promedio",
+    `${formatPercent(reporteData.rentabilidadNeta.margenPct)}%`,
+    margin + (colWidth + colGap) * 2,
+    secondRowY,
+  );
+
+  const thirdRowY = secondRowY + 40;
+  drawKeyValue(
+    "Material perdido (g)",
+    formatNumber(reporteData.perdidas.filamentoDesperdiciadoGramos),
+    margin,
+    thirdRowY,
+  );
+  cursorY = thirdRowY + 36;
+
+  drawSectionTitle("Producción del mes");
+
+  const tableColumns = [
+    { label: "Producto", width: 120 },
+    { label: "Categoría", width: 80 },
+    { label: "Estado", width: 50 },
+    { label: "Material (g)", width: 55 },
+    { label: "Costo total", width: 60 },
+    { label: "Precio venta", width: 60 },
+    { label: "Ganancia", width: 60 },
+  ];
+  const tableX = margin;
+  const headerHeight = 18;
+
+  const drawTableHeader = () => {
+    ensureSpace(headerHeight + 8);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.setFillColor(245, 245, 245);
+    pdf.rect(tableX, cursorY, contentWidth, headerHeight, "F");
+    let x = tableX;
+    tableColumns.forEach((col) => {
+      pdf.text(col.label, x + 4, cursorY + 12);
+      x += col.width;
+    });
+    cursorY += headerHeight + 6;
+  };
+
+  drawTableHeader();
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9);
+
+  reporteData.detalle.forEach((row) => {
+    const estado = normalizeEstado(row.estado);
+    const material = row.materialGrams || row.gramosUsados || 0;
+    const cells = [
+      row.producto || "Producto",
+      row.categoria || "General",
+      estado,
+      formatNumber(material),
+      formatMoney(row.costoTotal || 0),
+      formatMoney(row.precioVenta || 0),
+      formatMoney(row.ganancia || 0),
+    ];
+
+    const productLines = pdf.splitTextToSize(cells[0], tableColumns[0].width - 8);
+    const categoryLines = pdf.splitTextToSize(cells[1], tableColumns[1].width - 8);
+    const rowLines = Math.max(productLines.length, categoryLines.length, 1);
+    const rowHeight = rowLines * 12;
+
+    ensureSpace(rowHeight + 4);
+    let x = tableX;
+
+    productLines.forEach((line, index) => {
+      pdf.text(line, x + 4, cursorY + 10 + index * 12);
+    });
+    x += tableColumns[0].width;
+
+    categoryLines.forEach((line, index) => {
+      pdf.text(line, x + 4, cursorY + 10 + index * 12);
+    });
+    x += tableColumns[1].width;
+
+    pdf.text(cells[2], x + 4, cursorY + 10);
+    x += tableColumns[2].width;
+    pdf.text(cells[3], x + 4, cursorY + 10);
+    x += tableColumns[3].width;
+    pdf.text(cells[4], x + 4, cursorY + 10);
+    x += tableColumns[4].width;
+    pdf.text(cells[5], x + 4, cursorY + 10);
+    x += tableColumns[5].width;
+    pdf.text(cells[6], x + 4, cursorY + 10);
+
+    cursorY += rowHeight + 4;
+    if (cursorY > pageHeight - margin - 20) {
+      pdf.addPage();
+      cursorY = margin;
+      drawTableHeader();
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+    }
+  });
+
+  const productStats = new Map<
+    string,
+    { ingresos: number; ganancia: number; margen: number }
+  >();
+  reporteData.detalle.forEach((row) => {
+    const key = row.producto || "Producto";
+    const current = productStats.get(key) ?? { ingresos: 0, ganancia: 0, margen: 0 };
+    const ingresos = row.precioVenta || 0;
+    const ganancia = row.ganancia || 0;
+    current.ingresos += ingresos;
+    current.ganancia += ganancia;
+    current.margen = current.ingresos > 0 ? (current.ganancia / current.ingresos) * 100 : 0;
+    productStats.set(key, current);
+  });
+
+  const topByGanancia = Array.from(productStats.entries())
+    .map(([name, item]) => ({ name, ganancia: item.ganancia, margen: item.margen }))
+    .sort((a, b) => b.ganancia - a.ganancia)
+    .slice(0, 5);
+
+  const topByMargen = Array.from(productStats.entries())
+    .map(([name, item]) => ({ name, ganancia: item.ganancia, margen: item.margen }))
+    .sort((a, b) => b.margen - a.margen)
+    .slice(0, 5);
+
+  drawSectionTitle("Ranking de productos");
+  ensureSpace(120);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(11);
+  pdf.text("Top por ganancia", margin, cursorY);
+  pdf.text("Top por margen", margin + contentWidth / 2 + 10, cursorY);
+  cursorY += 14;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9);
+  const listStartY = cursorY;
+  topByGanancia.forEach((item, index) => {
+    pdf.text(
+      `${index + 1}. ${item.name} — ${formatMoney(item.ganancia)} (${formatPercent(item.margen)}%)`,
+      margin,
+      listStartY + index * 14,
+    );
+  });
+  topByMargen.forEach((item, index) => {
+    pdf.text(
+      `${index + 1}. ${item.name} — ${formatPercent(item.margen)}%`,
+      margin + contentWidth / 2 + 10,
+      listStartY + index * 14,
+    );
+  });
+  cursorY = listStartY + Math.max(topByGanancia.length, topByMargen.length) * 14 + 8;
+
+  drawSectionTitle("Análisis de fallos");
+  const pctFallos = totalRegistros > 0 ? (fallidas / totalRegistros) * 100 : 0;
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+  pdf.text(`Impresiones fallidas: ${formatNumber(fallidas)}`, margin, cursorY);
+  cursorY += 16;
+  pdf.text(
+    `Material perdido total: ${formatNumber(reporteData.perdidas.filamentoDesperdiciadoGramos)} g`,
+    margin,
+    cursorY,
+  );
+  cursorY += 16;
+  pdf.text(`Costo asociado: ${formatMoney(reporteData.perdidas.costos)}`, margin, cursorY);
+  cursorY += 16;
+  pdf.text(`Porcentaje sobre la producción: ${formatPercent(pctFallos)}%`, margin, cursorY);
+  cursorY += 24;
+
+  drawSectionTitle("Nota final");
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+  const note =
+    "Este reporte se genera automáticamente a partir del historial registrado en Costly3D. " +
+    "Los datos reflejan únicamente las impresiones registradas durante el período seleccionado.";
+  const noteLines = pdf.splitTextToSize(note, contentWidth);
+  noteLines.forEach((line) => {
+    ensureSpace(14);
+    pdf.text(line, margin, cursorY);
+    cursorY += 14;
+  });
 
   pdf.save(`reporte-mensual-${reporteData.periodoKey}.pdf`);
 };
