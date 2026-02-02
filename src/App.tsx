@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import DebugAnalyticsPanel, { debugTrack } from "./components/DebugAnalyticsPanel";
 import Dashboard from "./pages/Dashboard/Dashboard";
 import Landing from "./pages/Landing/Landing";
+import { isDev } from "./utils/proPermissions";
 
 export default function App() {
   const [view, setView] = useState<"landing" | "app">("landing");
@@ -15,10 +16,13 @@ export default function App() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
+  const devMode = isDev();
+  const devForcePro = devMode && import.meta.env.VITE_DEV_FORCE_PRO === "true";
 
   const openProModal = (source: "limit" | "cta" = "cta") => {
     // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por límite FREE.
     // Punto único de entrada PRO: se reutiliza tanto por límite FREE como por CTA manual.
+    if (devForcePro) return;
     setProModalSource(source);
     setIsProModalOpen(true);
   };
@@ -229,12 +233,19 @@ export default function App() {
     </>
   );
 
+  const devBadge = devForcePro ? (
+    <div className="fixed top-4 right-4 z-50 rounded-full bg-slate-900/90 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+      🛠 DEV MODE — PRO FORZADO
+    </div>
+  ) : null;
+
   if (view === "landing") {
     return (
       <>
         <Landing onStart={() => setView("app")} onOpenProModal={() => openProModal("cta")} />
         <Analytics />
         {import.meta.env.DEV && <DebugAnalyticsPanel />}
+        {devBadge}
         {modalLayer}
       </>
     );
@@ -245,6 +256,7 @@ export default function App() {
       <Dashboard onOpenProModal={openProModal} />
       <Analytics />
       {import.meta.env.DEV && <DebugAnalyticsPanel />}
+      {devBadge}
       {modalLayer}
     </>
   );

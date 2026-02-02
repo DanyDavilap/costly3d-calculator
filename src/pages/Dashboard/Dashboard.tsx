@@ -42,8 +42,9 @@ import {
   type BrandSettings,
 } from "../../utils/pdfTheme";
 import { loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
+import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
 
-type PrintStatus = "cotizado" | "confirmado" | "en_produccion" | "finalizado" | "fallido";
+type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
 
 interface FailureDetails {
   date: string;
@@ -104,7 +105,6 @@ const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const MATERIAL_STOCK_KEY = "materialStock";
 const FREE_PRODUCT_LIMIT = 3;
-const IS_PRO_SANDBOX = true;
 const SHOW_PROFITABILITY_SECTION = false;
 const MONTH_NAMES = [
   "enero",
@@ -191,7 +191,7 @@ const buildStockMap = (records: HistoryRecord[]) => {
   return records.reduce<Record<string, number>>((acc, record) => {
     const key = getProductKey(record.name, record.category);
     const current = acc[key] ?? 0;
-    const available = record.status === "cotizado" ? record.quantity || 0 : 0;
+    const available = record.status === "cotizada" ? record.quantity || 0 : 0;
     acc[key] = current + available;
     return acc;
   }, {});
@@ -215,17 +215,15 @@ const normalizeHistoryRecord = (
     raw.status ?? ((raw as unknown as { sold?: boolean }).sold ? "sold" : "draft"),
   );
   const status: PrintStatus =
-    legacyStatus === "sold" || legacyStatus === "confirmado"
-      ? "confirmado"
-      : legacyStatus === "draft"
-        ? "cotizado"
+    legacyStatus === "draft" || legacyStatus === "cotizado" || legacyStatus === "cotizada"
+      ? "cotizada"
+      : legacyStatus === "confirmado" || legacyStatus === "en_produccion"
+        ? "en_produccion"
         : legacyStatus === "produced" || legacyStatus === "producido" || legacyStatus === "finalizado"
-          ? "finalizado"
-          : legacyStatus === "en_produccion"
-            ? "en_produccion"
-            : legacyStatus === "fallido"
-              ? "fallido"
-              : "cotizado";
+          ? "finalizada_ok"
+          : legacyStatus === "fallido"
+            ? "finalizada_fallida"
+            : "cotizada";
   const stockChanges = (raw.stockChanges ?? []).map((change: StockChange) => {
     const inferredReason = change.reason ?? (change.change < 0 ? "sold" : "restock");
     return {
@@ -259,9 +257,9 @@ const normalizeHistoryRecord = (
   const stockDeductedGrams =
     typeof (raw as HistoryRecord).stockDeductedGrams === "number"
       ? (raw as HistoryRecord).stockDeductedGrams
-      : status === "finalizado"
+      : status === "finalizada_ok"
         ? materialGramsUsed
-        : status === "fallido"
+        : status === "finalizada_fallida"
           ? failure?.gramsLost ?? 0
           : 0;
 
@@ -495,18 +493,19 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setMaterialStock(nextStock);
   };
 
-  const isFreeLimitReached = records.length >= FREE_PRODUCT_LIMIT;
+  const isFreeLimitReached = !isDev() && records.length >= FREE_PRODUCT_LIMIT;
+  const user: UserPlan = null;
+  const isProEnabled = isProUser(user);
   const showStockOnboarding = materialStock.length === 0;
   const showStockBanner =
     showStockOnboarding &&
     (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
 
   const profitability = useMemo(
-    () => calculateProfitability(records.filter((record) => record.status !== "fallido")),
+    () => calculateProfitability(records.filter((record) => record.status !== "finalizada_fallida")),
     [records],
   );
   const hasProfitabilityData = profitability.entries.length > 0;
-  const isProEnabled = IS_PRO_SANDBOX;
   const previewTopByProfit =
     profitability.topByProfit.length > 0
       ? profitability.topByProfit
@@ -644,16 +643,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
   const getStatusBadge = (status: HistoryRecord["status"]) => {
     switch (status) {
-      case "confirmado":
-        return { label: "Confirmado", className: "bg-blue-100 text-blue-700" };
       case "en_produccion":
         return { label: "En producción", className: "bg-indigo-100 text-indigo-700" };
-      case "finalizado":
-        return { label: "Finalizado", className: "bg-green-100 text-green-700" };
-      case "fallido":
-        return { label: "Fallido", className: "bg-red-100 text-red-700" };
+      case "finalizada_ok":
+        return { label: "Finalizada OK", className: "bg-green-100 text-green-700" };
+      case "finalizada_fallida":
+        return { label: "Finalizada fallida", className: "bg-red-100 text-red-700" };
       default:
-        return { label: "Cotizado", className: "bg-yellow-100 text-yellow-700" };
+        return { label: "Cotizada", className: "bg-yellow-100 text-yellow-700" };
     }
   };
 
@@ -773,7 +770,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   ): boolean => {
     // Single source of truth: history persistence + free-limit checks live only here.
     const isGrowing = newRecords.length > records.length;
-    if (isGrowing && records.length >= FREE_PRODUCT_LIMIT) {
+    if (isGrowing && !isDev() && records.length >= FREE_PRODUCT_LIMIT) {
       // Punto único de entrada PRO: mismo modal para límite FREE y CTA manual.
       handleOpenProModal("limit");
       return false;
@@ -922,13 +919,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const exportQuotationPdf = () => {
     const data = buildPdfDataFromResult();
     if (!data) return;
-    const allowExport = !isFreeLimitReached || IS_PRO_SANDBOX;
+    const allowExport = !isFreeLimitReached || isProEnabled;
     attemptPdfExport(data, allowExport);
   };
 
   const exportRecordPdf = (record: HistoryRecord) => {
     const data = buildPdfDataFromRecord(record);
-    attemptPdfExport(data, IS_PRO_SANDBOX);
+    attemptPdfExport(data, isProEnabled);
   };
 
   const exportMonthlyReportPdf = () => {
@@ -1097,7 +1094,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ensureSpace(theme.lineGap + 6);
       const parsedDate = parseRecordDate(record.date);
       const dateLabel = parsedDate ? formatDate(parsedDate) : record.date;
-      const totalValue = record.status === "fallido" ? 0 : record.total || record.breakdown.finalPrice;
+      const totalValue = record.status === "finalizada_fallida" ? 0 : record.total || record.breakdown.finalPrice;
       doc.setFont("helvetica", "normal");
       doc.text(dateLabel, colDate, cursorY);
       doc.text(record.productName || record.name || "Producto", colProduct, cursorY, { maxWidth: 60 });
@@ -1151,7 +1148,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
     materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
     quantity: 1,
-    status: "cotizado",
+    status: "cotizada",
     stockDeductedGrams: 0,
     startedAt: null,
     failure: null,
@@ -1309,7 +1306,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     ];
     const rows = monthlyReportRecords.map((r) => {
       const snapshot = resolveMaterialSnapshotFromRecord(r);
-      const isFailed = r.status === "fallido";
+      const isFailed = r.status === "finalizada_fallida";
       const priceValue = isFailed ? 0 : r.breakdown.finalPrice;
       const profitValue = isFailed ? 0 : r.breakdown.profit;
       return [
@@ -1434,6 +1431,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const openConfirmModal = (record: HistoryRecord) => {
+    setIsFailureModalOpen(false);
+    setStockModal({ open: false, available: 0, required: 0, recordId: null, selectedMaterialId: "" });
     setConfirmTarget(record);
     setIsConfirmModalOpen(true);
   };
@@ -1452,6 +1451,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const openFailureModal = (record: HistoryRecord) => {
+    setStockModal({ open: false, available: 0, required: 0, recordId: null, selectedMaterialId: "" });
     setFailureTarget(record);
     setFailurePercent(50);
     setFailureNote("");
@@ -1467,13 +1467,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
   const handleConfirmProduction = () => {
     if (!confirmTarget) return;
-    if (confirmTarget.status !== "cotizado") {
+    if (confirmTarget.status !== "cotizada") {
       closeConfirmModal();
       return;
     }
     const nextRecords = records.map((record) =>
       record.id === confirmTarget.id
-        ? { ...record, status: "confirmado" as const, stockDeductedGrams: 0 }
+        ? { ...record, status: "en_produccion" as const, stockDeductedGrams: 0, startedAt: null }
         : record,
     );
     persistHistory(nextRecords);
@@ -1496,66 +1496,64 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     });
   };
 
-  const startProduction = (record: HistoryRecord, overrideMaterialId?: string) => {
-    if (record.status !== "confirmado") return;
+  const beginProduction = (record: HistoryRecord, overrideMaterialId?: string) => {
+    if (record.status !== "en_produccion") return;
+    if (record.startedAt) return;
     const selectedId = overrideMaterialId ?? record.selectedMaterialId ?? "";
     const required = getRequiredGramsForRecord(record);
     const spool = selectedId ? materialStock.find((item) => item.id === selectedId) : undefined;
-    const available = spool?.gramsAvailable ?? 0;
-    if (!spool || required > available) {
-      openStockInsufficientModal({
-        recordId: record.id,
-        required,
-        selectedMaterialId: selectedId,
-      });
-      return;
+    const isDemoSpool = Boolean(spool?.isDemo);
+    if (!isDemoSpool) {
+      const available = spool?.gramsAvailable ?? 0;
+      if (!spool || required > available) {
+        openStockInsufficientModal({
+          recordId: record.id,
+          required,
+          selectedMaterialId: selectedId,
+        });
+        return;
+      }
+      const nextStock = materialStock.map((item) =>
+        item.id === spool.id ? { ...item, gramsAvailable: item.gramsAvailable - required } : item,
+      );
+      persistMaterialStock(nextStock);
     }
-
     const nextRecords = records.map((item) => {
       if (item.id !== record.id) return item;
       return {
         ...item,
-        status: "en_produccion" as const,
         startedAt: new Date().toISOString(),
-        selectedMaterialId: spool.id,
-        materialType: spool.materialType ?? null,
-        materialColorName: spool.color?.name ?? null,
-        materialBrand: spool.brand ?? null,
+        stockDeductedGrams: isDemoSpool ? 0 : required,
+        selectedMaterialId: spool?.id ?? selectedId,
+        materialType: spool?.materialType ?? record.materialType ?? null,
+        materialColorName: spool?.color?.name ?? record.materialColorName ?? null,
+        materialBrand: spool?.brand ?? record.materialBrand ?? null,
         materialGramsUsed: required,
       };
     });
     persistHistory(nextRecords);
   };
 
-  const handleStartProduction = (record: HistoryRecord) => {
-    startProduction(record);
+  const finalizeProduction = (record: HistoryRecord) => {
+    if (record.status !== "en_produccion") return;
+    if (!record.startedAt) return;
+    const nextRecords = records.map((item) =>
+      item.id === record.id ? { ...item, status: "finalizada_ok" as const } : item,
+    );
+    persistHistory(nextRecords);
   };
 
   const handleMarkFinalized = (record: HistoryRecord) => {
-    if (record.status !== "en_produccion") return;
-    const required = getRequiredGramsForRecord(record);
-    const spool = record.selectedMaterialId
-      ? materialStock.find((item) => item.id === record.selectedMaterialId)
-      : undefined;
-    const isDemoSpool = Boolean(spool?.isDemo);
-    if (!isDemoSpool && spool) {
-      const available = spool.gramsAvailable ?? 0;
-      const nextStock = materialStock.map((item) =>
-        item.id === spool.id ? { ...item, gramsAvailable: Math.max(0, available - required) } : item,
-      );
-      persistMaterialStock(nextStock);
-    }
-    const nextRecords = records.map((item) =>
-      item.id === record.id
-        ? { ...item, status: "finalizado" as const, stockDeductedGrams: isDemoSpool ? 0 : required }
-        : item,
-    );
-    persistHistory(nextRecords);
+    finalizeProduction(record);
   };
 
   const handleConfirmFailure = () => {
     if (!failureTarget) return;
     if (failureTarget.status !== "en_produccion") {
+      closeFailureModal();
+      return;
+    }
+    if (!failureTarget.startedAt) {
       closeFailureModal();
       return;
     }
@@ -1567,11 +1565,20 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ? materialStock.find((item) => item.id === failureTarget.selectedMaterialId)
       : undefined;
     const isDemoSpool = Boolean(spool?.isDemo);
+    const alreadyDeducted = Number(failureTarget.stockDeductedGrams ?? 0);
     if (!isDemoSpool && spool) {
       const available = spool.gramsAvailable ?? 0;
-      const nextStock = materialStock.map((item) =>
-        item.id === spool.id ? { ...item, gramsAvailable: Math.max(0, available - gramsLost) } : item,
-      );
+      const adjustment = alreadyDeducted - gramsLost;
+      const nextStock = materialStock.map((item) => {
+        if (item.id !== spool.id) return item;
+        if (adjustment > 0) {
+          return { ...item, gramsAvailable: available + adjustment };
+        }
+        if (adjustment < 0) {
+          return { ...item, gramsAvailable: Math.max(0, available - Math.abs(adjustment)) };
+        }
+        return item;
+      });
       persistMaterialStock(nextStock);
     }
     const failureDetails: FailureDetails = {
@@ -1587,7 +1594,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       item.id === failureTarget.id
         ? {
             ...item,
-            status: "fallido" as const,
+            status: "finalizada_fallida" as const,
             failure: failureDetails,
             stockDeductedGrams: isDemoSpool ? 0 : gramsLost,
           }
@@ -1598,7 +1605,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const openRecord = (record: HistoryRecord) => {
-    if (record.status !== "cotizado") {
+    if (record.status !== "cotizada") {
       toast.info("Esta cotización ya fue procesada y no se puede editar.", {
         duration: 2500,
       });
@@ -1632,7 +1639,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       ...record,
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
-      status: "cotizado",
+      status: "cotizada",
       stockDeductedGrams: 0,
       startedAt: null,
       failure: null,
@@ -1643,8 +1650,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const deleteRecord = (record: HistoryRecord) => {
-    if (record.status !== "cotizado") {
-      toast.info("Solo podés eliminar cotizaciones en estado cotizado.", { duration: 2500 });
+    if (record.status !== "cotizada") {
+      toast.info("Solo podés eliminar cotizaciones en estado cotizada.", { duration: 2500 });
       return;
     }
     if (!confirm("¿Eliminar este producto del historial?")) return;
@@ -1656,8 +1663,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const totalToys = records.length;
-  const revenueRecords = records.filter((record) => record.status === "finalizado");
-  const failedRecords = records.filter((record) => record.status === "fallido");
+  const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
+  const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
   const totalHours = revenueRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
   const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
   const mostProfitable =
@@ -1757,10 +1764,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .map(([brand, grams]) => ({ brand, grams }))
     .sort((a, b) => b.grams - a.grams);
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
-  const productionRecords = records.filter(
-    (record) =>
-      record.status === "confirmado" || record.status === "en_produccion" || record.status === "fallido",
-  );
+  const productionRecords = records.filter((record) => record.status === "en_produccion");
   const tableRecords =
     activeSection === "production"
       ? productionRecords
@@ -2269,9 +2273,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         <div className="mt-4 flex items-center justify-center">
                           <div
                             className="relative inline-flex"
-                            title={!IS_PRO_SANDBOX && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                            title={!isProEnabled && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
                           >
-                            {!IS_PRO_SANDBOX && isFreeLimitReached && (
+                            {!isProEnabled && isFreeLimitReached && (
                               <button
                                 type="button"
                                 className="absolute inset-0 cursor-not-allowed"
@@ -2281,10 +2285,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             )}
                             <button
                               type="button"
-                              disabled={!IS_PRO_SANDBOX && isFreeLimitReached}
+                              disabled={!isProEnabled && isFreeLimitReached}
                               onClick={exportQuotationPdf}
                               className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-white px-4 py-2 text-sm font-semibold text-green-700 shadow-sm transition hover:bg-green-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                              title={!IS_PRO_SANDBOX && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                              title={!isProEnabled && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
                             >
                               Exportar cotización (PDF)
                               <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
@@ -2306,8 +2310,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             if (saved) {
                               showSaveBanner({
                                 type: "success",
-                                message: "Cotización guardada correctamente.",
-                                description: "Podés verla en Cotizaciones.",
+                                message: "Cotización guardada",
+                                description: "Disponible en Cotizaciones.",
                               });
                             }
                           } catch (error) {
@@ -2546,7 +2550,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                               if (activeSection !== "quotations") return;
                               // Historial shortcut: Alt + click = duplicar cálculo.
                               if (event.altKey) {
-                                if (record.status === "cotizado") {
+                                if (record.status === "cotizada") {
                                   duplicateRecord(record);
                                 }
                                 return;
@@ -2572,10 +2576,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                               {formatCurrency(record.breakdown.totalCost)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-bold">
-                              {formatCurrency(record.status === "fallido" ? 0 : record.breakdown.finalPrice)}
+                              {formatCurrency(record.status === "finalizada_fallida" ? 0 : record.breakdown.finalPrice)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-semibold">
-                              {formatCurrency(record.status === "fallido" ? 0 : record.breakdown.profit)}
+                              {formatCurrency(record.status === "finalizada_fallida" ? 0 : record.breakdown.profit)}
                             </td>
                             <td className="py-4 px-4">
                               <span
@@ -2586,8 +2590,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </td>
                             <td className="py-4 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <div className="relative inline-flex" title={!IS_PRO_SANDBOX ? "Disponible en Costly3D PRO" : undefined}>
-                                  {!IS_PRO_SANDBOX && (
+                                <div className="relative inline-flex" title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}>
+                                  {!isProEnabled && (
                                     <button
                                       type="button"
                                       className="absolute inset-0 cursor-not-allowed"
@@ -2597,16 +2601,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                   )}
                                   <button
                                     type="button"
-                                    disabled={!IS_PRO_SANDBOX}
+                                    disabled={!isProEnabled}
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      if (!IS_PRO_SANDBOX) return;
+                                      if (!isProEnabled) return;
                                       exportRecordPdf(record);
                                     }}
                                     className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                                    title={!IS_PRO_SANDBOX ? "Disponible en Costly3D PRO" : undefined}
+                                    title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}
                                   >
-                                {IS_PRO_SANDBOX ? (
+                                {isProEnabled ? (
                                       <>
                                         <Download size={14} />
                                         PDF
@@ -2619,7 +2623,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     )}
                                   </button>
                                 </div>
-                                {!isReportView && record.status === "cotizado" && (
+                                {!isReportView && record.status === "cotizada" && (
                                   <>
                                     <button
                                       type="button"
@@ -2640,8 +2644,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                         openConfirmModal(record);
                                       }}
                                       className="inline-flex items-center justify-center rounded-full p-2 text-green-600 hover:bg-green-50 transition-colors"
-                                      aria-label="Confirmar pedido"
-                                      title="Confirmar pedido"
+                                      aria-label="Pasar a producción"
+                                      title="Pasar a producción"
                                     >
                                       ✅
                                     </button>
@@ -2659,46 +2663,49 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     </button>
                                   </>
                                 )}
-                                {!isReportView && activeSection === "production" && record.status === "confirmado" && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleStartProduction(record);
-                                    }}
-                                    className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
-                                    aria-label="Iniciar impresión"
-                                    title="Iniciar impresión"
-                                  >
-                                    🏭
-                                  </button>
-                                )}
                                 {!isReportView && activeSection === "production" && record.status === "en_produccion" && (
                                   <>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleMarkFinalized(record);
-                                      }}
-                                      className="inline-flex items-center justify-center rounded-full p-2 text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                      aria-label="Finalizar impresión"
-                                      title="Finalizar impresión"
-                                    >
-                                      ✅
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        openFailureModal(record);
-                                      }}
-                                      className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
-                                      aria-label="Registrar impresión fallida"
-                                      title="Registrar impresión fallida"
-                                    >
-                                      ❌
-                                    </button>
+                                    {!record.startedAt ? (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          beginProduction(record);
+                                        }}
+                                        className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                        aria-label="Empezar producción"
+                                        title="Empezar producción"
+                                      >
+                                        🏭
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleMarkFinalized(record);
+                                          }}
+                                          className="inline-flex items-center justify-center rounded-full p-2 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                          aria-label="Finalizar impresión"
+                                          title="Finalizar impresión"
+                                        >
+                                          ✅
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            openFailureModal(record);
+                                          }}
+                                          className="inline-flex items-center justify-center rounded-full p-2 text-red-500 hover:bg-red-50 transition-colors"
+                                          aria-label="Registrar impresión fallida"
+                                          title="Registrar impresión fallida"
+                                        >
+                                          ❌
+                                        </button>
+                                      </>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -3300,11 +3307,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Confirmar pedido"
+            aria-label="Pasar a producción"
           >
-            <h3 className="text-2xl font-bold text-gray-900">Confirmar pedido</h3>
+            <h3 className="text-2xl font-bold text-gray-900">Pasar a producción</h3>
             <p className="mt-3 text-sm text-gray-600">
-              Esta acción confirma el pedido y lo deja listo para iniciar impresión.
+              Esta acción mueve la cotización a producción para que puedas finalizarla o marcarla como fallida.
             </p>
             <ul className="mt-4 space-y-2 text-sm text-gray-700">
               <li>• Bloqueará la edición de la cotización</li>
@@ -3326,7 +3333,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 onClick={handleConfirmProduction}
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
               >
-                Confirmar pedido
+                Pasar a producción
               </button>
             </div>
           </div>
@@ -3411,7 +3418,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   onClick={() => {
                     const record = records.find((item) => item.id === stockModal.recordId);
                     if (record) {
-                      startProduction(record, stockModal.selectedMaterialId);
+                      beginProduction(record, stockModal.selectedMaterialId);
                     }
                     setStockModal({
                       open: false,
