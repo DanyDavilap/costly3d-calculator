@@ -1,30 +1,31 @@
-# Producción
+ï»¿# ProducciÃ³n
 
-Producción es el historial operativo de la app. Todo lo que se imprime debe quedar registrado como OK o fallido. Esto permite analizar rentabilidad real y repetir impresiones con datos consistentes.
+ProducciÃ³n es el historial operativo de la app. Todo lo que se imprime debe quedar registrado como OK o fallido. Esto permite analizar rentabilidad real y repetir impresiones con datos consistentes.
 
-## Estados de producción
+## Estados de producciÃ³n
 
-- En producción: impresión en curso, aún sin resultado.
-- Finalizada OK: impresión completa, genera ingresos.
-- Finalizada fallida: impresión incompleta, genera pérdidas.
+- En producciÃ³n: impresiÃ³n en curso, aÃºn sin resultado.
+- Finalizada OK: impresiÃ³n completa, genera ingresos.
+- Finalizada fallida: impresiÃ³n incompleta, genera pÃ©rdidas.
 
-## Qué se registra
+## QuÃ© se registra
 
 - Material consumido
 - Costos asociados
 - Estado final
-- Fecha de inicio y finalización
+- Fecha de inicio y finalizaciÃ³n
 
-## Por qué no se elimina
+## Por quÃ© no se elimina
 
-Eliminar registros rompe la trazabilidad. Sin historial real no hay análisis confiable. Por eso Costly3D mantiene todas las impresiones en Producción.
+Eliminar registros rompe la trazabilidad. Sin historial real no hay anÃ¡lisis confiable. Por eso Costly3D mantiene todas las impresiones en ProducciÃ³n.
 
-## Reimpresión
+## ReimpresiÃ³n
 
-Si una impresión falló, podés duplicarla para reintentar. La reimpresión crea un nuevo registro en Producción y conserva la referencia al original.
+Si una impresiÃ³n fallÃ³, podÃ©s duplicarla para reintentar. La reimpresiÃ³n crea un nuevo registro en ProducciÃ³n y conserva la referencia al original.
 
-## Buenas prácticas
+## Buenas prÃ¡cticas
 
-- Marcá OK solo si la pieza está entregable.
-- Marcá fallida en cuanto se detecte el error.
-- Registrá fallas para mejorar procesos y reducir pérdidas.
+- MarcÃ¡ OK solo si la pieza estÃ¡ entregable.
+- MarcÃ¡ fallida en cuanto se detecte el error.
+- RegistrÃ¡ fallas para mejorar procesos y reducir pÃ©rdidas.
+

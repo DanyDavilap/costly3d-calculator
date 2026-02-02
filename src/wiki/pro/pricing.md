@@ -1,31 +1,32 @@
-# Estrategia de precios
+Ôªø# Estrategia de precios
 
-Una estrategia de precios profesional no parte del mercado, sino de tus costos reales y del valor que entreg·s. Costly3D te da n˙meros para decidir con criterio.
+Una estrategia de precios profesional no parte del mercado, sino de tus costos reales y del valor que entreg√°s. Costly3D te da n√∫meros para decidir con criterio.
 
-## Base mÌnima
+## Base m√≠nima
 
-- Calcul· costo real por pieza.
-- DefinÌ un margen mÌnimo sostenible.
-- Ajust· seg˙n complejidad, urgencia y volumen.
+- Calcul√° costo real por pieza.
+- Defin√≠ un margen m√≠nimo sostenible.
+- Ajust√° seg√∫n complejidad, urgencia y volumen.
 
 ## Precio por valor
 
-El cliente no compra gramos de filamento. Compra soluciÛn, diseÒo, tiempo y confiabilidad. Si tu propuesta resuelve un problema, tu precio puede superar el promedio del mercado.
+El cliente no compra gramos de filamento. Compra soluci√≥n, dise√±o, tiempo y confiabilidad. Si tu propuesta resuelve un problema, tu precio puede superar el promedio del mercado.
 
 ## Escalabilidad
 
 Si un producto se imprime muchas veces, el precio puede optimizarse sin destruir el margen. El objetivo es aumentar volumen manteniendo rentabilidad.
 
-## PolÌtica interna
+## Pol√≠tica interna
 
-DefinÌ reglas simples para todo el negocio:
+Defin√≠ reglas simples para todo el negocio:
 
-- Margen mÌnimo por categorÌa.
-- Descuentos m·ximos por volumen.
+- Margen m√≠nimo por categor√≠a.
+- Descuentos m√°ximos por volumen.
 - Sobrecargo por urgencias o cambios.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Revis· m·rgenes mensualmente.
+- Revis√° m√°rgenes mensualmente.
 - No vendas por debajo del costo real.
-- Us· el comparador de escenarios antes de grandes pedidos.
+- Us√° el comparador de escenarios antes de grandes pedidos.
+

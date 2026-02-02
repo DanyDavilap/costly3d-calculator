@@ -1,23 +1,24 @@
-# Mentalidad de negocio 3D
+Ôªø# Mentalidad de negocio 3D
 
-La impresiÛn 3D puede ser un hobby o un negocio. La diferencia est· en cÛmo medÌs, decidÌs y aprendÈs.
+La impresi√≥n 3D puede ser un hobby o un negocio. La diferencia est√° en c√≥mo med√≠s, decid√≠s y aprend√©s.
 
 ## Mentalidad profesional
 
-- Registr· todo. Lo que no se mide no se mejora.
-- Prioriz· rentabilidad sobre volumen.
-- Tom· decisiones con datos, no con intuiciÛn.
+- Registr√° todo. Lo que no se mide no se mejora.
+- Prioriz√° rentabilidad sobre volumen.
+- Tom√° decisiones con datos, no con intuici√≥n.
 
 ## Rentabilidad sostenida
 
-Un mes bueno no garantiza un negocio sano. La constancia viene de procesos repetibles, costos controlados y m·rgenes claros.
+Un mes bueno no garantiza un negocio sano. La constancia viene de procesos repetibles, costos controlados y m√°rgenes claros.
 
 ## Decisiones inteligentes
 
-Us· Costly3D para comparar escenarios, entender fallas y ajustar precios. Cada decisiÛn basada en datos reduce el margen de error.
+Us√° Costly3D para comparar escenarios, entender fallas y ajustar precios. Cada decisi√≥n basada en datos reduce el margen de error.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Revis· reportes mensuales sin excusas.
-- Ajust· precios cuando cambian costos.
-- Tom· en serio cada impresiÛn fallida como pÈrdida real.
+- Revis√° reportes mensuales sin excusas.
+- Ajust√° precios cuando cambian costos.
+- Tom√° en serio cada impresi√≥n fallida como p√©rdida real.
+

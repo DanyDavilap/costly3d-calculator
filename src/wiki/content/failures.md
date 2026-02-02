@@ -1,26 +1,27 @@
-# Fallos
+Ôªø# Fallos
 
-Las impresiones fallidas son parte normal del proceso, pero deben registrarse para que el negocio sea rentable. Costly3D las trata como pÈrdidas reales.
+Las impresiones fallidas son parte normal del proceso, pero deben registrarse para que el negocio sea rentable. Costly3D las trata como p√©rdidas reales.
 
-## QuÈ registra una falla
+## Qu√© registra una falla
 
 - Porcentaje impreso antes de fallar
 - Material perdido
-- Costos asociados de material y energÌa
+- Costos asociados de material y energ√≠a
 - Nota opcional del motivo
 
-## Por quÈ registrar fallas
+## Por qu√© registrar fallas
 
 - Permite calcular el costo real del mes.
 - Identifica productos con mayor riesgo.
 - Muestra el impacto del desperdicio.
 
-## CÛmo interpretar
+## C√≥mo interpretar
 
-Una tasa de fallos alta reduce la ganancia neta. El objetivo no es solo vender m·s, sino fallar menos con el mismo volumen.
+Una tasa de fallos alta reduce la ganancia neta. El objetivo no es solo vender m√°s, sino fallar menos con el mismo volumen.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Registr· la falla al momento de ocurrir.
-- Us· notas claras para detectar patrones.
-- Compar· fallos por material o categorÌa.
+- Registr√° la falla al momento de ocurrir.
+- Us√° notas claras para detectar patrones.
+- Compar√° fallos por material o categor√≠a.
+

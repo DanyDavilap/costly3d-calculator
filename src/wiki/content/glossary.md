@@ -1,19 +1,20 @@
-# Glosario
+ï»¿# Glosario
 
-Términos usados en Costly3D para mantener un lenguaje común.
+TÃ©rminos usados en Costly3D para mantener un lenguaje comÃºn.
 
-- **Costo total**: suma de material, energía, mano de obra y costos operativos.
+- **Costo total**: suma de material, energÃ­a, mano de obra y costos operativos.
 - **Costo de material**: valor del filamento consumido por pieza.
-- **Costo energético**: gasto estimado por consumo eléctrico de impresión.
+- **Costo energÃ©tico**: gasto estimado por consumo elÃ©ctrico de impresiÃ³n.
 - **Mano de obra**: tiempo de armado o post-proceso convertido en costo.
-- **Desgaste**: porcentaje destinado a mantenimiento y vida útil del equipo.
-- **Operativo**: costos indirectos por operación del taller.
+- **Desgaste**: porcentaje destinado a mantenimiento y vida Ãºtil del equipo.
+- **Operativo**: costos indirectos por operaciÃ³n del taller.
 - **Precio final**: precio sugerido para venta con margen aplicado.
 - **Ganancia neta**: ingresos menos costos totales.
 - **Margen**: ganancia neta en porcentaje del ingreso.
 - **Stock**: cantidad de material disponible por spool.
 - **Spool**: rollo de material registrado con marca, color y gramos.
-- **Producción**: registros operativos de impresiones en curso, OK o fallidas.
-- **Fallida**: impresión que no se completa y genera pérdida parcial.
-- **Reporte mensual**: resumen del desempeño del mes.
-- **Escenario**: simulación de producción sin impacto real.
+- **ProducciÃ³n**: registros operativos de impresiones en curso, OK o fallidas.
+- **Fallida**: impresiÃ³n que no se completa y genera pÃ©rdida parcial.
+- **Reporte mensual**: resumen del desempeÃ±o del mes.
+- **Escenario**: simulaciÃ³n de producciÃ³n sin impacto real.
+

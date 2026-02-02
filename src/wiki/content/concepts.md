@@ -1,14 +1,14 @@
-# Conceptos clave
+Ôªø# Conceptos clave
 
-Esta secciÛn define los conceptos que usa Costly3D para que interpretes los resultados con precisiÛn.
+Esta secci√≥n define los conceptos que usa Costly3D para que interpretes los resultados con precisi√≥n.
 
 ## Costo real
 
-El costo real de una pieza incluye material, energÌa, tiempo de armado y costos operativos. Si solo mir·s material, el margen siempre parece m·s alto de lo que es.
+El costo real de una pieza incluye material, energ√≠a, tiempo de armado y costos operativos. Si solo mir√°s material, el margen siempre parece m√°s alto de lo que es.
 
 ## Precio de venta
 
-Es el valor que cobr·s al cliente por unidad. En Costly3D el precio se calcula desde el costo real m·s un margen. No es un n˙mero arbitrario.
+Es el valor que cobr√°s al cliente por unidad. En Costly3D el precio se calcula desde el costo real m√°s un margen. No es un n√∫mero arbitrario.
 
 ## Margen
 
@@ -20,12 +20,13 @@ Un margen alto con pocas ventas puede ser menos rentable que un margen menor con
 
 ## Ganancia neta
 
-Es el ingreso total menos el costo total. No es el precio de venta. Es el dinero real que queda despuÈs de producir.
+Es el ingreso total menos el costo total. No es el precio de venta. Es el dinero real que queda despu√©s de producir.
 
-## ProducciÛn OK y fallida
+## Producci√≥n OK y fallida
 
-Una impresiÛn OK genera ingresos y consume stock completo. Una impresiÛn fallida registra pÈrdidas y material desperdiciado. Ambas deben registrarse para que los reportes sean reales.
+Una impresi√≥n OK genera ingresos y consume stock completo. Una impresi√≥n fallida registra p√©rdidas y material desperdiciado. Ambas deben registrarse para que los reportes sean reales.
 
 ## Escenarios
 
-Los escenarios permiten simular decisiones sin tocar producciÛn real. Son ˙tiles para comparar precios, tasas de falla y m·rgenes antes de producir.
+Los escenarios permiten simular decisiones sin tocar producci√≥n real. Son √∫tiles para comparar precios, tasas de falla y m√°rgenes antes de producir.
+

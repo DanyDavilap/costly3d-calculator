@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { wikiGroups, defaultWikiSectionId } from "../data/wikiSections";
-import { getWikiContent } from "../data/wikiIndex";
+import { loadWikiContent } from "../data/wikiIndex";
 import WikiSidebar from "./WikiSidebar";
 import WikiContent from "./WikiContent";
 
@@ -11,6 +11,8 @@ type WikiLayoutProps = {
 
 export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProps) {
   const [activeId, setActiveId] = useState(defaultWikiSectionId);
+  const [content, setContent] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const activeSection = useMemo(() => {
     for (const group of wikiGroups) {
@@ -20,14 +22,35 @@ export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProp
     return wikiGroups[0]?.sections[0];
   }, [activeId]);
 
-  const content = activeSection ? getWikiContent(activeSection.id) : "";
+  useEffect(() => {
+    let isMounted = true;
+    if (!activeSection) {
+      setContent("");
+      return;
+    }
+    setIsLoading(true);
+    loadWikiContent(activeSection.id)
+      .then((text) => {
+        if (isMounted) {
+          setContent(text);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeSection]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[260px_1fr]">
       <WikiSidebar groups={wikiGroups} activeId={activeId} onSelect={setActiveId} />
       <WikiContent
         title={activeSection?.title ?? "Wiki"}
-        markdown={content}
+        markdown={isLoading ? "Cargando contenido..." : content}
         isProSection={activeSection?.isPro ?? false}
         isProEnabled={isProEnabled}
         onUnlockPro={onUnlockPro}

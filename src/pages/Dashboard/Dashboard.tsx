@@ -15,6 +15,7 @@ import {
   Box,
   Package,
   BookOpen,
+  FolderKanban,
   Save,
   Trash2,
   Lock,
@@ -110,6 +111,29 @@ interface StockChange {
   type: "sale" | "restock";
 }
 
+interface ProjectPiece {
+  id: string;
+  projectId: string;
+  partName: string;
+  color: string;
+  materialId: string;
+  grams: number;
+  estimatedTime: number;
+  quantity: number;
+  plate: string;
+  amsSlot?: string;
+  notes?: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  category: string;
+  description?: string;
+  createdAt: string;
+  pieces: ProjectPiece[];
+}
+
 interface MaterialSpool {
   id: string;
   displayName: string;
@@ -126,6 +150,7 @@ const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const MATERIAL_STOCK_KEY = "materialStock";
+const PROJECTS_STORAGE_KEY = "projects";
 const FREE_PRODUCT_LIMIT = 3;
 const SHOW_PROFITABILITY_SECTION = true;
 const MONTH_NAMES = [
@@ -358,6 +383,42 @@ const loadMaterialStock = (): MaterialSpool[] => {
   }
 };
 
+const loadStoredProjects = (): Project[] => {
+  if (typeof window === "undefined") return [];
+  const saved = localStorage.getItem(PROJECTS_STORAGE_KEY);
+  if (!saved) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((project) => ({
+        id: String(project.id ?? Date.now().toString()),
+        name: String(project.name ?? "Proyecto"),
+        category: String(project.category ?? "General"),
+        description: typeof project.description === "string" ? project.description : "",
+        createdAt: String(project.createdAt ?? new Date().toISOString()),
+        pieces: Array.isArray(project.pieces)
+          ? project.pieces.map((piece: ProjectPiece) => ({
+              id: String(piece.id ?? Date.now().toString()),
+              projectId: String(piece.projectId ?? project.id ?? ""),
+              partName: String(piece.partName ?? "Parte"),
+              color: String(piece.color ?? ""),
+              materialId: String(piece.materialId ?? ""),
+              grams: Number.isFinite(piece.grams) ? Number(piece.grams) : 0,
+              estimatedTime: Number.isFinite(piece.estimatedTime) ? Number(piece.estimatedTime) : 0,
+              quantity: Number.isFinite(piece.quantity) ? Number(piece.quantity) : 1,
+              plate: String(piece.plate ?? ""),
+              amsSlot: piece.amsSlot ? String(piece.amsSlot) : "",
+              notes: piece.notes ? String(piece.notes) : "",
+            }))
+          : [],
+      }))
+      .filter((project) => Boolean(project.name));
+  } catch (error) {
+    return [];
+  }
+};
+
 function resolveColorOption(value: unknown): ColorOption | null {
   if (!value) return null;
   if (typeof value === "string") {
@@ -419,6 +480,7 @@ type DashboardSection =
   | "quotations"
   | "production"
   | "scenarios"
+  | "projects"
   | "wiki"
   | "stock"
   | "reports"
@@ -445,6 +507,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [stockError, setStockError] = useState("");
   const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
+  const [projects, setProjects] = useState<Project[]>(() => loadStoredProjects());
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [params, setParams] = useState<PricingParams>(loadStoredParams);
 
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -533,6 +597,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   }, [category]);
 
   useEffect(() => {
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
+  }, [projects]);
+
+  useEffect(() => {
+    if (activeSection !== "projects") return;
+    if (activeProjectId || projects.length === 0) return;
+    setActiveProjectId(projects[0].id);
+  }, [activeSection, activeProjectId, projects]);
+
+  useEffect(() => {
     saveBrandSettings(brand);
   }, [brand]);
 
@@ -552,6 +626,147 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const handleToggleDarkMode = () => {
     const next = toggleDarkMode();
     setIsDarkMode(next === "dark");
+  };
+
+  const calculateProjectTotals = (project: Project) => {
+    const totals = project.pieces.reduce(
+      (acc, piece) => {
+        const quantity = Number.isFinite(piece.quantity) ? piece.quantity : 0;
+        acc.grams += (piece.grams || 0) * quantity;
+        acc.time += (piece.estimatedTime || 0) * quantity;
+        acc.pieces += quantity;
+        return acc;
+      },
+      { grams: 0, time: 0, pieces: 0 },
+    );
+    return totals;
+  };
+
+  const createProject = () => {
+    const id = `project-${Date.now()}`;
+    const newProject: Project = {
+      id,
+      name: "Nuevo proyecto",
+      category: "General",
+      description: "",
+      createdAt: new Date().toISOString(),
+      pieces: [],
+    };
+    setProjects((prev) => [newProject, ...prev]);
+    setActiveProjectId(id);
+    setActiveSection("projects");
+  };
+
+  const updateProject = (projectId: string, updates: Partial<Project>) => {
+    setProjects((prev) =>
+      prev.map((project) => (project.id === projectId ? { ...project, ...updates } : project)),
+    );
+  };
+
+  const addProjectPiece = (projectId: string) => {
+    const newPiece: ProjectPiece = {
+      id: `piece-${Date.now()}`,
+      projectId,
+      partName: "Nueva pieza",
+      color: "",
+      materialId: "",
+      grams: 0,
+      estimatedTime: 0,
+      quantity: 1,
+      plate: "",
+      amsSlot: "",
+      notes: "",
+    };
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === projectId ? { ...project, pieces: [...project.pieces, newPiece] } : project,
+      ),
+    );
+  };
+
+  const updateProjectPiece = (projectId: string, pieceId: string, updates: Partial<ProjectPiece>) => {
+    setProjects((prev) =>
+      prev.map((project) => {
+        if (project.id !== projectId) return project;
+        return {
+          ...project,
+          pieces: project.pieces.map((piece) =>
+            piece.id === pieceId ? { ...piece, ...updates } : piece,
+          ),
+        };
+      }),
+    );
+  };
+
+  const removeProjectPiece = (projectId: string, pieceId: string) => {
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === projectId
+          ? { ...project, pieces: project.pieces.filter((piece) => piece.id !== pieceId) }
+          : project,
+      ),
+    );
+  };
+
+  const duplicateProject = (project: Project) => {
+    const newId = `project-${Date.now()}`;
+    const duplicated: Project = {
+      ...project,
+      id: newId,
+      name: `${project.name} (copia)`,
+      createdAt: new Date().toISOString(),
+      pieces: project.pieces.map((piece) => ({
+        ...piece,
+        id: `piece-${Date.now()}-${piece.id}`,
+        projectId: newId,
+      })),
+    };
+    setProjects((prev) => [duplicated, ...prev]);
+    setActiveProjectId(newId);
+  };
+
+  const convertProjectToQuote = (project: Project) => {
+    const totals = calculateProjectTotals(project);
+    if (totals.grams <= 0 || totals.time <= 0) {
+      toast.info("Completá gramos y tiempo estimado para convertir el proyecto.");
+      return;
+    }
+    const inputs: PricingInputs = {
+      timeMinutes: totals.time * 60,
+      materialGrams: totals.grams,
+      assemblyMinutes: 0,
+    };
+    const breakdown = pricingCalculator({ inputs, params });
+    const newRecord: HistoryRecord = {
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString("es-AR"),
+      createdAt: new Date().toISOString(),
+      name: project.name,
+      productName: project.name,
+      category: project.category || "General",
+      inputs,
+      params,
+      breakdown,
+      total: breakdown.finalPrice,
+      selectedMaterialId: "",
+      materialGramsUsed: 0,
+      materialType: null,
+      materialColorName: null,
+      materialBrand: null,
+      quantity: 1,
+      status: "cotizada",
+      stockDeductedGrams: 0,
+      startedAt: null,
+      completedAt: null,
+      reprintOfId: null,
+      failure: null,
+      stockChanges: [],
+    };
+    const saved = persistHistory([newRecord, ...records]);
+    if (saved) {
+      toast.success("Proyecto convertido en cotización.");
+      setActiveSection("quotations");
+    }
   };
 
   const updateScenarioField = (
@@ -2160,6 +2375,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     reporteMensual,
   ]);
   const escenariosResumen = useMemo(() => compararEscenariosV1(scenarioInputs), [scenarioInputs]);
+  const activeProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? null,
+    [projects, activeProjectId],
+  );
   const availableYears = Array.from(
     new Set(
       records
@@ -2220,6 +2439,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   { id: "calculator", label: "Calculadora", icon: Calculator },
                   { id: "quotations", label: "Cotizaciones", icon: FileText },
                   { id: "production", label: "Producción", icon: Factory },
+                  { id: "projects", label: "Proyectos", icon: FolderKanban },
                   { id: "scenarios", label: "Comparador", icon: BarChart3 },
                   { id: "wiki", label: "Wiki", icon: BookOpen },
                   { id: "reports", label: "Reportes", icon: BarChart3 },
@@ -3595,6 +3815,292 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   </table>
                 </div>
               </div>
+            </div>
+          </section>
+        )}
+
+        {activeSection === "projects" && (
+          <section className="max-w-6xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Proyectos</h2>
+                  <p className="text-sm text-gray-600">
+                    Gestioná impresiones multiparte como un solo proyecto.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={createProject}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                  disabled={!isProEnabled}
+                >
+                  Nuevo proyecto
+                </button>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+                <div className="rounded-2xl border border-gray-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                    Listado de proyectos
+                  </p>
+                  <div className="space-y-2">
+                    {projects.length === 0 && (
+                      <p className="text-sm text-gray-500">No hay proyectos aún.</p>
+                    )}
+                    {projects.map((project) => {
+                      const totals = calculateProjectTotals(project);
+                      const isActive = activeProjectId === project.id;
+                      return (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => setActiveProjectId(project.id)}
+                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                            isActive ? "border-blue-200 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-gray-800">{project.name}</p>
+                          <p className="text-xs text-gray-500">{project.category || "General"}</p>
+                          <div className="mt-2 text-xs text-gray-500 flex flex-wrap gap-2">
+                            <span>{totals.pieces} piezas</span>
+                            <span>• {totals.grams.toFixed(0)} g</span>
+                            <span>• {totals.time.toFixed(1)} h</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-gray-200 p-5">
+                  {!activeProject ? (
+                    <p className="text-sm text-gray-500">Seleccioná un proyecto para ver los detalles.</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                        <div className="flex-1 min-w-[220px]">
+                          <label className="block text-xs font-semibold text-gray-600 mb-2">
+                            Nombre del proyecto
+                          </label>
+                          <input
+                            value={activeProject.name}
+                            onChange={(event) => updateProject(activeProject.id, { name: event.target.value })}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[180px]">
+                          <label className="block text-xs font-semibold text-gray-600 mb-2">Categoría</label>
+                          <input
+                            value={activeProject.category}
+                            onChange={(event) => updateProject(activeProject.id, { category: event.target.value })}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-xs font-semibold text-gray-600 mb-2">
+                          Descripción (opcional)
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={activeProject.description ?? ""}
+                          onChange={(event) => updateProject(activeProject.id, { description: event.target.value })}
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                        <h3 className="text-sm font-semibold text-gray-700">Piezas</h3>
+                        <button
+                          type="button"
+                          onClick={() => addProjectPiece(activeProject.id)}
+                          className="text-blue-600 font-semibold text-sm hover:text-blue-700"
+                        >
+                          Agregar pieza
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-200 text-left">
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Parte</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Color</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Material</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Cantidad</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Gramos</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Tiempo (h)</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Placa</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">AMS</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600 text-right">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeProject.pieces.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="py-4 text-sm text-gray-500">
+                                  Todavía no hay piezas cargadas.
+                                </td>
+                              </tr>
+                            ) : (
+                              activeProject.pieces.map((piece) => (
+                                <tr key={piece.id} className="border-b border-gray-100">
+                                  <td className="py-2 px-2">
+                                    <input
+                                      value={piece.partName}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, { partName: event.target.value })
+                                      }
+                                      className="w-32 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      value={piece.color}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, { color: event.target.value })
+                                      }
+                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <select
+                                      value={piece.materialId}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, { materialId: event.target.value })
+                                      }
+                                      className="w-36 rounded-lg border border-gray-200 px-2 py-1 text-xs bg-white"
+                                    >
+                                      <option value="">Seleccionar</option>
+                                      {materialStock.map((spool) => (
+                                        <option key={spool.id} value={spool.id}>
+                                          {spool.displayName}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      type="number"
+                                      value={piece.quantity}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, {
+                                          quantity: Number(event.target.value),
+                                        })
+                                      }
+                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      type="number"
+                                      value={piece.grams}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, {
+                                          grams: Number(event.target.value),
+                                        })
+                                      }
+                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      type="number"
+                                      value={piece.estimatedTime}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, {
+                                          estimatedTime: Number(event.target.value),
+                                        })
+                                      }
+                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      value={piece.plate}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, { plate: event.target.value })
+                                      }
+                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <input
+                                      value={piece.amsSlot ?? ""}
+                                      onChange={(event) =>
+                                        updateProjectPiece(activeProject.id, piece.id, { amsSlot: event.target.value })
+                                      }
+                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeProjectPiece(activeProject.id, piece.id)}
+                                      className="text-red-500 hover:text-red-600 text-xs font-semibold"
+                                    >
+                                      Quitar
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                        {(() => {
+                          const totals = calculateProjectTotals(activeProject);
+                          return (
+                            <div className="flex flex-wrap items-center gap-4">
+                              <span>Totales: {totals.pieces} piezas</span>
+                              <span>{totals.grams.toFixed(0)} g</span>
+                              <span>{totals.time.toFixed(1)} h</span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => duplicateProject(activeProject)}
+                          className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                          Duplicar proyecto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => convertProjectToQuote(activeProject)}
+                          className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600"
+                        >
+                          Convertir en cotización
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {!isProEnabled && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                  <div className="text-center px-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Desbloqueá Proyectos PRO para gestionar impresiones multiparte.
+                    </p>
+                    <button
+                      type="button"
+                      className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                      onClick={() => handleOpenProModal("cta")}
+                    >
+                      Acceso anticipado PRO
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}

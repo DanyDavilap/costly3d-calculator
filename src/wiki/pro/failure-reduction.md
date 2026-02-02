@@ -1,27 +1,28 @@
-# ReducciÛn de fallos
+Ôªø# Reducci√≥n de fallos
 
-Reducir fallos es una de las formas m·s directas de aumentar la ganancia neta. Cada impresiÛn fallida consume material, tiempo y energÌa que no se recuperan.
+Reducir fallos es una de las formas m√°s directas de aumentar la ganancia neta. Cada impresi√≥n fallida consume material, tiempo y energ√≠a que no se recuperan.
 
-## MediciÛn real
+## Medici√≥n real
 
-Registr· cada fallo con porcentaje impreso. Esto te permite medir el impacto real y detectar patrones.
+Registr√° cada fallo con porcentaje impreso. Esto te permite medir el impacto real y detectar patrones.
 
-## PrevenciÛn operativa
+## Prevenci√≥n operativa
 
-- Valid· el spool antes de imprimir.
-- Us· perfiles probados.
-- Control· la primera capa como est·ndar.
+- Valid√° el spool antes de imprimir.
+- Us√° perfiles probados.
+- Control√° la primera capa como est√°ndar.
 
-## PriorizaciÛn
+## Priorizaci√≥n
 
-No todas las fallas cuestan lo mismo. Prioriz· reducir fallas en piezas de alto costo o alta demanda.
+No todas las fallas cuestan lo mismo. Prioriz√° reducir fallas en piezas de alto costo o alta demanda.
 
-## An·lisis mensual
+## An√°lisis mensual
 
-Revis· el reporte de fallos y compar· con meses anteriores. Si la tasa no baja, ajust· procesos.
+Revis√° el reporte de fallos y compar√° con meses anteriores. Si la tasa no baja, ajust√° procesos.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Document· causas frecuentes.
-- Estandariz· configuraciÛn por material.
-- ConvertÌ cada falla en aprendizaje operativo.
+- Document√° causas frecuentes.
+- Estandariz√° configuraci√≥n por material.
+- Convert√≠ cada falla en aprendizaje operativo.
+

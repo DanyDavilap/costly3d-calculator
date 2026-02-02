@@ -1,31 +1,36 @@
-import intro from "../content/intro.md?raw";
-import concepts from "../content/concepts.md?raw";
-import glossary from "../content/glossary.md?raw";
-import materials from "../content/materials.md?raw";
-import quotes from "../content/quotes.md?raw";
-import production from "../content/production.md?raw";
-import failures from "../content/failures.md?raw";
-import reports from "../content/reports.md?raw";
-import scenarios from "../content/scenarios.md?raw";
-import pricing from "../pro/pricing.md?raw";
-import failureReduction from "../pro/failure-reduction.md?raw";
-import organization from "../pro/organization.md?raw";
-import mindset from "../pro/mindset.md?raw";
+const wikiFiles = import.meta.glob("../content/*.md", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
 
-const wikiContentIndex: Record<string, string> = {
-  intro,
-  concepts,
-  glossary,
-  materials,
-  quotes,
-  production,
-  failures,
-  reports,
-  scenarios,
-  pricing,
-  "failure-reduction": failureReduction,
-  organization,
-  mindset,
+const wikiProFiles = import.meta.glob("../pro/*.md", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+const wikiContentUrls: Record<string, string> = {
+  intro: wikiFiles["../content/intro.md"],
+  concepts: wikiFiles["../content/concepts.md"],
+  glossary: wikiFiles["../content/glossary.md"],
+  materials: wikiFiles["../content/materials.md"],
+  quotes: wikiFiles["../content/quotes.md"],
+  production: wikiFiles["../content/production.md"],
+  failures: wikiFiles["../content/failures.md"],
+  reports: wikiFiles["../content/reports.md"],
+  scenarios: wikiFiles["../content/scenarios.md"],
+  pricing: wikiProFiles["../pro/pricing.md"],
+  "failure-reduction": wikiProFiles["../pro/failure-reduction.md"],
+  organization: wikiProFiles["../pro/organization.md"],
+  mindset: wikiProFiles["../pro/mindset.md"],
 };
 
-export const getWikiContent = (id: string) => wikiContentIndex[id] ?? "";
+export const loadWikiContent = async (id: string) => {
+  const url = wikiContentUrls[id];
+  if (!url) return "";
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  const decoder = new TextDecoder("utf-8");
+  return decoder.decode(buffer);
+};

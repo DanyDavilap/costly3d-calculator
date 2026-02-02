@@ -1,14 +1,14 @@
-# Materiales y Stock
+Ôªø# Materiales y Stock
 
-El stock es la base de un c·lculo real. Si el stock est· desactualizado, el costo de material y el consumo reportado se distorsionan.
+El stock es la base de un c√°lculo real. Si el stock est√° desactualizado, el costo de material y el consumo reportado se distorsionan.
 
-## CÛmo cargar stock correctamente
+## C√≥mo cargar stock correctamente
 
-- Registr· cada spool con material, marca, color y gramos reales.
-- Us· nombres consistentes para identificar r·pido cada spool.
-- Actualiz· el stock cuando compr·s material o cuando descart·s un rollo.
+- Registr√° cada spool con material, marca, color y gramos reales.
+- Us√° nombres consistentes para identificar r√°pido cada spool.
+- Actualiz√° el stock cuando compr√°s material o cuando descart√°s un rollo.
 
-## Por quÈ importa el stock
+## Por qu√© importa el stock
 
 - Permite calcular el costo real por gramo.
 - Evita vender por debajo de tu costo.
@@ -16,10 +16,11 @@ El stock es la base de un c·lculo real. Si el stock est· desactualizado, el cost
 
 ## Descuento de material
 
-El stock se descuenta solo cuando una impresiÛn empieza o cuando se marca como fallida. Las cotizaciones no descuentan material. Esto separa lo comercial de lo operativo.
+El stock se descuenta solo cuando una impresi√≥n empieza o cuando se marca como fallida. Las cotizaciones no descuentan material. Esto separa lo comercial de lo operativo.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Registr· el stock antes de cotizar series grandes.
-- Us· colores reales y marcas para comparar rendimientos.
-- Revis· gramos disponibles antes de comenzar producciÛn.
+- Registr√° el stock antes de cotizar series grandes.
+- Us√° colores reales y marcas para comparar rendimientos.
+- Revis√° gramos disponibles antes de comenzar producci√≥n.
+

@@ -1,29 +1,30 @@
-# OrganizaciÛn operativa
+Ôªø# Organizaci√≥n operativa
 
-Un taller rentable no se sostiene con improvisaciÛn. La organizaciÛn operativa reduce errores, acelera entregas y hace que el trabajo sea predecible.
+Un taller rentable no se sostiene con improvisaci√≥n. La organizaci√≥n operativa reduce errores, acelera entregas y hace que el trabajo sea predecible.
 
 ## Flujo recomendado
 
 1. Cotizar con datos reales.
 2. Confirmar pedido.
-3. Pasar a ProducciÛn.
+3. Pasar a Producci√≥n.
 4. Finalizar OK o Fallida.
 5. Revisar reportes mensuales.
 
-## Cat·logo vivo
+## Cat√°logo vivo
 
-Us· categorÌas coherentes para agrupar productos. Esto facilita reportes y decisiones de precio.
+Us√° categor√≠as coherentes para agrupar productos. Esto facilita reportes y decisiones de precio.
 
 ## Control de stock
 
-El stock debe reflejar la realidad. Si un spool se termina y no se actualiza, todo el c·lculo posterior se distorsiona.
+El stock debe reflejar la realidad. Si un spool se termina y no se actualiza, todo el c√°lculo posterior se distorsiona.
 
 ## Orden y trazabilidad
 
-Cada registro cuenta. Sin historial real no hay an·lisis. ProducciÛn es tu memoria operativa.
+Cada registro cuenta. Sin historial real no hay an√°lisis. Producci√≥n es tu memoria operativa.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- DefinÌ responsables por carga de datos.
-- Revis· el stock semanalmente.
-- MantenÈ un est·ndar de nombres por producto.
+- Defin√≠ responsables por carga de datos.
+- Revis√° el stock semanalmente.
+- Manten√© un est√°ndar de nombres por producto.
+

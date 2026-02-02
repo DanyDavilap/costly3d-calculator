@@ -1,29 +1,30 @@
-# IntroducciÛn
+Ôªø# Introducci√≥n
 
-Costly3D es un sistema para gestionar costos, precios y producciÛn de impresiÛn 3D con enfoque comercial. Su objetivo es ayudarte a tomar decisiones con n˙meros reales, reducir pÈrdidas y sostener un negocio rentable.
+Costly3D es un sistema para gestionar costos, precios y producci√≥n de impresi√≥n 3D con enfoque comercial. Su objetivo es ayudarte a tomar decisiones con n√∫meros reales, reducir p√©rdidas y sostener un negocio rentable.
 
-Esta Wiki es el manual oficial de Costly3D. Est· pensada para talleres y makers que venden, producen y necesitan ordenar su operaciÛn. AquÌ vas a encontrar el lenguaje, la lÛgica y las buenas pr·cticas para usar la app y entender sus mÈtricas.
+Esta Wiki es el manual oficial de Costly3D. Est√° pensada para talleres y makers que venden, producen y necesitan ordenar su operaci√≥n. Aqu√≠ vas a encontrar el lenguaje, la l√≥gica y las buenas pr√°cticas para usar la app y entender sus m√©tricas.
 
-## QuÈ resuelve Costly3D
+## Qu√© resuelve Costly3D
 
 - Estimar costos reales por pieza, no solo por material.
-- Definir precios con m·rgenes coherentes.
-- Registrar producciÛn OK y fallida sin perder trazabilidad.
-- Analizar ingresos, pÈrdidas y consumos por perÌodo.
-- Comparar escenarios sin tocar producciÛn real.
+- Definir precios con m√°rgenes coherentes.
+- Registrar producci√≥n OK y fallida sin perder trazabilidad.
+- Analizar ingresos, p√©rdidas y consumos por per√≠odo.
+- Comparar escenarios sin tocar producci√≥n real.
 
-## CÛmo usar esta Wiki
+## C√≥mo usar esta Wiki
 
-Cada secciÛn explica un mÛdulo de la app y la lÛgica detr·s de las mÈtricas. LeÈ en orden si est·s empezando, o salt· directo a lo que necesit·s.
+Cada secci√≥n explica un m√≥dulo de la app y la l√≥gica detr√°s de las m√©tricas. Le√© en orden si est√°s empezando, o salt√° directo a lo que necesit√°s.
 
 - Materiales y Stock: base de costos reales.
-- Cotizaciones: decisiÛn comercial.
-- ProducciÛn: historial operativo.
-- Reportes: an·lisis mensual.
-- Escenarios: simulaciÛn sin riesgo.
+- Cotizaciones: decisi√≥n comercial.
+- Producci√≥n: historial operativo.
+- Reportes: an√°lisis mensual.
+- Escenarios: simulaci√≥n sin riesgo.
 
 ## Mentalidad de negocio
 
-Costly3D no es una calculadora aislada. Es un sistema de control. Si registr·s bien tu operaciÛn, los reportes te van a mostrar la realidad del negocio. Si no registr·s fallas o no actualiz·s stock, la realidad se distorsiona.
+Costly3D no es una calculadora aislada. Es un sistema de control. Si registr√°s bien tu operaci√≥n, los reportes te van a mostrar la realidad del negocio. Si no registr√°s fallas o no actualiz√°s stock, la realidad se distorsiona.
 
-Us· la app como un h·bito operativo. La rentabilidad no aparece por casualidad: se diseÒa, se mide y se corrige.
+Us√° la app como un h√°bito operativo. La rentabilidad no aparece por casualidad: se dise√±a, se mide y se corrige.
+

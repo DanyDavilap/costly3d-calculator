@@ -1,27 +1,28 @@
-# Cotizaciones
+Ôªø# Cotizaciones
 
-Las cotizaciones son el punto de partida comercial. Son propuestas de precio que todavÌa no afectan stock ni reportes.
+Las cotizaciones son el punto de partida comercial. Son propuestas de precio que todav√≠a no afectan stock ni reportes.
 
-## QuÈ registrar en una cotizaciÛn
+## Qu√© registrar en una cotizaci√≥n
 
 - Nombre del producto
-- CategorÌa
-- Tiempo de impresiÛn y armado
+- Categor√≠a
+- Tiempo de impresi√≥n y armado
 - Material y gramos
-- Par·metros de costos y margen
+- Par√°metros de costos y margen
 
-## Por quÈ la cotizaciÛn es clave
+## Por qu√© la cotizaci√≥n es clave
 
-Una cotizaciÛn bien hecha evita vender por debajo del costo y te permite repetir precios consistentes en el tiempo. TambiÈn crea un historial que podÈs reutilizar.
+Una cotizaci√≥n bien hecha evita vender por debajo del costo y te permite repetir precios consistentes en el tiempo. Tambi√©n crea un historial que pod√©s reutilizar.
 
 ## Flujo recomendado
 
-1. Cotiz· con datos reales de material y tiempos.
-2. Revis· el margen y el precio final.
-3. Confirm· y pas· a ProducciÛn cuando el pedido estÈ aprobado.
+1. Cotiz√° con datos reales de material y tiempos.
+2. Revis√° el margen y el precio final.
+3. Confirm√° y pas√° a Producci√≥n cuando el pedido est√© aprobado.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- No uses precios estimados sin tiempo real de impresiÛn.
-- MantenÈ la categorÌa para facilitar reportes.
-- Si el cliente no confirma, no lo pases a ProducciÛn.
+- No uses precios estimados sin tiempo real de impresi√≥n.
+- Manten√© la categor√≠a para facilitar reportes.
+- Si el cliente no confirma, no lo pases a Producci√≥n.
+

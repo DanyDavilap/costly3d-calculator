@@ -1,29 +1,30 @@
-# Reportes
+Ôªø# Reportes
 
-Los reportes mensuales muestran el desempeÒo real del negocio. Se construyen ˙nicamente con producciÛn finalizada y fallida.
+Los reportes mensuales muestran el desempe√±o real del negocio. Se construyen √∫nicamente con producci√≥n finalizada y fallida.
 
-## QuÈ incluyen
+## Qu√© incluyen
 
 - Ingresos totales
-- PÈrdidas por fallos
+- P√©rdidas por fallos
 - Consumo de material
 - Rentabilidad neta
 - Ranking de productos
 
-## CÛmo interpretar
+## C√≥mo interpretar
 
 - Un ingreso alto no garantiza rentabilidad si las fallas son frecuentes.
 - La ganancia neta es el indicador principal.
-- El ranking ayuda a priorizar los productos m·s rentables.
+- El ranking ayuda a priorizar los productos m√°s rentables.
 
 ## Uso recomendado
 
-- Revis· el reporte al final de cada mes.
-- Compar· m·rgenes entre productos.
-- Detect· materiales que generan m·s pÈrdidas.
+- Revis√° el reporte al final de cada mes.
+- Compar√° m√°rgenes entre productos.
+- Detect√° materiales que generan m√°s p√©rdidas.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Registr· toda la producciÛn para que el reporte sea confiable.
-- No mezcles cotizaciones con producciÛn real.
-- Us· el reporte para ajustar precios y procesos.
+- Registr√° toda la producci√≥n para que el reporte sea confiable.
+- No mezcles cotizaciones con producci√≥n real.
+- Us√° el reporte para ajustar precios y procesos.
+

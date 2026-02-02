@@ -1,18 +1,18 @@
-# Comparador de escenarios
+Ôªø# Comparador de escenarios
 
-El comparador permite simular decisiones sin afectar producciÛn, stock ni reportes. Es la herramienta ideal para evaluar precios, vol˙menes y tasas de fallas antes de producir.
+El comparador permite simular decisiones sin afectar producci√≥n, stock ni reportes. Es la herramienta ideal para evaluar precios, vol√∫menes y tasas de fallas antes de producir.
 
-## QuÈ podÈs simular
+## Qu√© pod√©s simular
 
 - Cantidad de impresiones
 - Precio de venta unitario
 - Costo de material por gramo
-- Gramos promedio por impresiÛn
-- Costo energÈtico por impresiÛn
+- Gramos promedio por impresi√≥n
+- Costo energ√©tico por impresi√≥n
 - Porcentaje de fallos
 - Porcentaje impreso en fallas
 
-## QuÈ resultados entrega
+## Qu√© resultados entrega
 
 - Impresiones OK y fallidas
 - Material usado y perdido
@@ -20,14 +20,15 @@ El comparador permite simular decisiones sin afectar producciÛn, stock ni report
 - Ingresos totales
 - Ganancia neta y margen
 
-## CÛmo usarlo bien
+## C√≥mo usarlo bien
 
-- Prob· distintos precios para ver impacto en margen.
-- Simul· una tasa de fallas realista.
-- Compar· escenarios por ganancia y por margen, no solo por ingresos.
+- Prob√° distintos precios para ver impacto en margen.
+- Simul√° una tasa de fallas realista.
+- Compar√° escenarios por ganancia y por margen, no solo por ingresos.
 
-## Buenas pr·cticas
+## Buenas pr√°cticas
 
-- Us· el comparador antes de aceptar series grandes.
-- Ajust· el porcentaje de fallos con datos histÛricos.
-- ElegÌ el escenario m·s rentable, no el que m·s vende.
+- Us√° el comparador antes de aceptar series grandes.
+- Ajust√° el porcentaje de fallos con datos hist√≥ricos.
+- Eleg√≠ el escenario m√°s rentable, no el que m√°s vende.
+
