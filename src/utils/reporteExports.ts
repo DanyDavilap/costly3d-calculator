@@ -1,6 +1,7 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
+import type { BrandingInfo } from "./brandingActivation";
 import type { ReporteMensual } from "./reporteMensual";
 
 export type ReporteDetalleRow = {
@@ -41,6 +42,7 @@ export type ReporteExportData = {
   insights: ReporteMensual["insights"];
   detalle: ReporteDetalleRow[];
   consumoDetalle: ReporteConsumoRow[];
+  branding?: BrandingInfo;
 };
 
 export const exportarExcel = (reporteData: ReporteExportData) => {
@@ -50,7 +52,26 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
 
   const workbook = XLSX.utils.book_new();
 
-  const resumenRows = [
+  const resumenRows: (string | number)[][] = [];
+  if (reporteData.branding) {
+    resumenRows.push(["Marca", reporteData.branding.name || "Costly3D"]);
+    resumenRows.push(["Color primario", reporteData.branding.primaryColor || ""]);
+    resumenRows.push(["Footer", reporteData.branding.footerText || ""]);
+    if (reporteData.branding.instagram) {
+      resumenRows.push(["Instagram", reporteData.branding.instagram]);
+    }
+    if (reporteData.branding.whatsapp) {
+      resumenRows.push(["WhatsApp", reporteData.branding.whatsapp]);
+    }
+    if (reporteData.branding.website) {
+      resumenRows.push(["Sitio web", reporteData.branding.website]);
+    }
+    if (reporteData.branding.logoDataUrl) {
+      resumenRows.push(["Logo (dataURL)", reporteData.branding.logoDataUrl]);
+    }
+    resumenRows.push([]);
+  }
+  resumenRows.push(
     ["Reporte mensual", reporteData.periodoLabel],
     [],
     ["Ingresos totales", reporteData.ingresos.total],
@@ -60,7 +81,7 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
     ["Consumo total (g)", reporteData.consumoFilamento.totalGramos],
     ["Rentabilidad neta", reporteData.rentabilidadNeta.neto],
     ["Margen neto (%)", reporteData.rentabilidadNeta.margenPct],
-  ];
+  );
   const resumenSheet = XLSX.utils.aoa_to_sheet(resumenRows);
   XLSX.utils.book_append_sheet(workbook, resumenSheet, "Resumen");
 

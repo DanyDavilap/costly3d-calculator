@@ -5,6 +5,9 @@ export type BrandSettings = {
   logoDataUrl: string;
   primaryColor: string;
   footerText: string;
+  instagram: string;
+  whatsapp: string;
+  website: string;
 };
 
 export type PdfTheme = {
@@ -23,6 +26,9 @@ export const DEFAULT_BRAND: BrandSettings = {
   logoDataUrl: "",
   primaryColor: "#5b9dff",
   footerText: "Cotización generada con Costly3D",
+  instagram: "",
+  whatsapp: "",
+  website: "",
 };
 
 const clampColor = (value: number) => Math.min(255, Math.max(0, value));
@@ -123,5 +129,19 @@ export const renderFooter = (doc: jsPDF, brand: BrandSettings, theme: PdfTheme) 
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   const footer = brand.footerText || DEFAULT_BRAND.footerText;
-  doc.text(footer, theme.marginX, doc.internal.pageSize.getHeight() - 12);
+  const footerY = doc.internal.pageSize.getHeight() - 14;
+  doc.text(footer, theme.marginX, footerY);
+
+  const socials = [
+    brand.instagram ? `Instagram: ${brand.instagram}` : "",
+    brand.whatsapp ? `WhatsApp: ${brand.whatsapp}` : "",
+    brand.website ? `Web: ${brand.website}` : "",
+  ].filter(Boolean);
+
+  if (socials.length > 0) {
+    doc.setFontSize(8);
+    doc.text(socials.join("  •  "), theme.marginX, footerY + 8);
+  }
 };
+
+
