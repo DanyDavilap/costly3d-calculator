@@ -38,6 +38,11 @@ import {
   type FalloMensual,
   type VentaMensual,
 } from "../../utils/reporteMensual";
+import {
+  calcularConsumoImpresiones,
+  type ImpresionConsumoInput,
+} from "../../utils/consumoImpresiones";
+import { exportarExcel, exportarPDF, type ReporteExportData } from "../../utils/reporteExports";
 import ColorPicker, { type ColorOption } from "../../components/ui/ColorPicker";
 import {
   createPdfTheme,
@@ -468,6 +473,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const stockFormRef = useRef<HTMLDivElement | null>(null);
   const materialSelectRef = useRef<HTMLSelectElement | null>(null);
   const stockHighlightTimerRef = useRef<number | null>(null);
+  const reportCardsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -934,186 +940,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     attemptPdfExport(data, isProEnabled);
   };
 
-  const exportMonthlyReportPdf = () => {
-    const doc = new jsPDF();
-    const theme = createPdfTheme(brand);
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const rightEdge = pageWidth - theme.marginX;
-
-    let cursorY = renderHeader(
-      doc,
-      brand,
-      theme,
-      "Reporte mensual",
-      `${reportMonthLabel} ${reportYear}`.trim(),
-    );
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(theme.textSize);
-    doc.setTextColor(17, 24, 39);
-    doc.text("Resumen", theme.marginX, cursorY);
-    cursorY += theme.lineGap;
-
-    const kpis = [
-      { label: "Total de cotizaciones", value: monthlyRecords.length.toString() },
-      { label: "Total de ingresos", value: formatMoney(monthlyTotal) },
-      { label: "Promedio por cotización", value: formatMoney(monthlyAverage) },
-      { label: "Pérdidas por fallas", value: formatMoney(monthlyFailureLosses) },
-      { label: "Gramos desperdiciados", value: `${monthlyFailureGrams.toFixed(0)} g` },
-      { label: "Tasa de fallas", value: `${monthlyFailureRate.toFixed(1)}%` },
-    ];
-
-    kpis.forEach((item) => {
-      doc.setFont("helvetica", "normal");
-      doc.text(item.label, theme.marginX, cursorY);
-      doc.setFont("helvetica", "bold");
-      doc.text(item.value, rightEdge, cursorY, { align: "right" });
-      cursorY += theme.lineGap;
-    });
-
-    cursorY += 4;
-    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.setLineWidth(0.4);
-    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
-    cursorY += 8;
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Consumo de material (mes)", theme.marginX, cursorY);
-    cursorY += theme.lineGap;
-
-    if (totalMaterialGrams <= 0) {
-      doc.setFont("helvetica", "normal");
-      doc.text("Sin datos de consumo para este mes.", theme.marginX, cursorY);
-      cursorY += theme.lineGap;
-    } else {
-      doc.setFont("helvetica", "normal");
-      doc.text("Total gramos usados", theme.marginX, cursorY);
-      doc.setFont("helvetica", "bold");
-      doc.text(`${totalMaterialGrams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
-      cursorY += theme.lineGap;
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Por material", theme.marginX, cursorY);
-      cursorY += theme.lineGap;
-      materialConsumptionByMaterialList.slice(0, 5).forEach((item) => {
-        doc.setFont("helvetica", "normal");
-        doc.text(`• ${item.material}`, theme.marginX, cursorY);
-        doc.setFont("helvetica", "bold");
-        doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
-        cursorY += theme.lineGap;
-      });
-
-      cursorY += 2;
-      doc.setFont("helvetica", "bold");
-      doc.text("Top colores", theme.marginX, cursorY);
-      cursorY += theme.lineGap;
-      materialConsumptionByColorList.slice(0, 3).forEach((item) => {
-        doc.setFont("helvetica", "normal");
-        doc.text(`• ${item.color}`, theme.marginX, cursorY);
-        doc.setFont("helvetica", "bold");
-        doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
-        cursorY += theme.lineGap;
-      });
-
-      if (materialConsumptionByBrandList.length > 0) {
-        cursorY += 2;
-        doc.setFont("helvetica", "bold");
-        doc.text("Top marcas", theme.marginX, cursorY);
-        cursorY += theme.lineGap;
-        materialConsumptionByBrandList.slice(0, 3).forEach((item) => {
-          doc.setFont("helvetica", "normal");
-          doc.text(`• ${item.brand}`, theme.marginX, cursorY);
-          doc.setFont("helvetica", "bold");
-          doc.text(`${item.grams.toFixed(0)} g`, rightEdge, cursorY, { align: "right" });
-          cursorY += theme.lineGap;
-        });
-      }
-    }
-
-    cursorY += 6;
-    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.setLineWidth(0.4);
-    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
-    cursorY += 8;
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Top 5 productos", theme.marginX, cursorY);
-    cursorY += theme.lineGap;
-
-    if (topProducts.length === 0) {
-      doc.setFont("helvetica", "normal");
-      doc.text("Sin datos para este mes.", theme.marginX, cursorY);
-      cursorY += theme.lineGap;
-    } else {
-      topProducts.forEach((item) => {
-        doc.setFont("helvetica", "normal");
-        doc.text(`• ${item.name}`, theme.marginX, cursorY);
-        doc.setFont("helvetica", "bold");
-        doc.text(formatMoney(item.total), rightEdge, cursorY, { align: "right" });
-        cursorY += theme.lineGap;
-      });
-    }
-
-    cursorY += 6;
-    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.setLineWidth(0.4);
-    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
-    cursorY += 8;
-
-    const colDate = theme.marginX;
-    const colProduct = colDate + 26;
-    const colCategory = colProduct + 62;
-    const colQty = rightEdge - 40;
-    const colTotal = rightEdge;
-
-    const renderTableHeader = () => {
-      doc.setFont("helvetica", "bold");
-      doc.text("Fecha", colDate, cursorY);
-      doc.text("Producto", colProduct, cursorY);
-      doc.text("Categoría", colCategory, cursorY);
-      doc.text("Cant.", colQty, cursorY, { align: "right" });
-      doc.text("Total", colTotal, cursorY, { align: "right" });
-      cursorY += theme.lineGap;
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.3);
-      doc.line(theme.marginX, cursorY, rightEdge, cursorY);
-      cursorY += 6;
-    };
-
-    const ensureSpace = (height: number) => {
-      if (cursorY + height < pageHeight - 24) return;
-      doc.addPage();
-      cursorY = renderHeader(
-        doc,
-        brand,
-        theme,
-        "Reporte mensual",
-        `${reportMonthLabel} ${reportYear}`.trim(),
-      );
-      renderTableHeader();
-    };
-
-    renderTableHeader();
-
-    monthlyReportRecords.forEach((record) => {
-      ensureSpace(theme.lineGap + 6);
-      const parsedDate = parseRecordDate(record.date);
-      const dateLabel = parsedDate ? formatDate(parsedDate) : record.date;
-      const totalValue = record.status === "finalizada_fallida" ? 0 : record.total || record.breakdown.finalPrice;
-      doc.setFont("helvetica", "normal");
-      doc.text(dateLabel, colDate, cursorY);
-      doc.text(record.productName || record.name || "Producto", colProduct, cursorY, { maxWidth: 60 });
-      doc.text(record.category || "General", colCategory, cursorY, { maxWidth: 40 });
-      doc.text(String(record.quantity || 1), colQty, cursorY, { align: "right" });
-      doc.text(formatMoney(totalValue), colTotal, cursorY, { align: "right" });
-      cursorY += theme.lineGap;
-    });
-
-    renderFooter(doc, brand, theme);
-    doc.save(`reporte-${reportYear}-${String(reportMonth + 1).padStart(2, "0")}.pdf`);
-  };
-
   const getInputs = () => {
     const timeMinutes = totalPrintMinutes();
     const assemblyMinutesTotal = totalAssemblyMinutes();
@@ -1290,99 +1116,28 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
   };
 
-  const exportToCSV = () => {
-    const headers = [
-      "Fecha",
-      "Nombre",
-      "Categoría",
-      "Estado",
-      "Tiempo (min)",
-      "Material (g)",
-      "Costo Total",
-      "Precio Venta",
-      "Ganancia",
-      "Material",
-      "Color",
-      "Marca",
-      "Gramos usados",
-      "Gramos perdidos",
-      "Costo material perdido",
-      "Costo energía perdido",
-      "Nota fallo",
-    ];
-    const rows = monthlyReportRecords.map((r) => {
-      const snapshot = resolveMaterialSnapshotFromRecord(r);
-      const isFailed = r.status === "finalizada_fallida";
-      const priceValue = isFailed ? 0 : r.breakdown.finalPrice;
-      const profitValue = isFailed ? 0 : r.breakdown.profit;
-      return [
-        r.date,
-        r.name,
-        r.category,
-        r.status,
-        r.inputs.timeMinutes.toFixed(0),
-        r.inputs.materialGrams.toFixed(0),
-        r.breakdown.totalCost.toFixed(0),
-        priceValue.toFixed(0),
-        profitValue.toFixed(0),
-        snapshot?.materialType ?? "",
-        snapshot?.colorName ?? "",
-        snapshot?.brandName ?? "",
-        snapshot?.grams ? snapshot.grams.toFixed(0) : "",
-        r.failure?.gramsLost ? r.failure.gramsLost.toFixed(0) : "",
-        r.failure?.materialCostLost ? r.failure.materialCostLost.toFixed(0) : "",
-        r.failure?.energyCostLost ? r.failure.energyCostLost.toFixed(0) : "",
-        r.failure?.note ?? "",
-      ];
-    });
+  const handleExportExcel = () => {
+    if (monthlyReportRecords.length === 0) {
+      toast.error("No hay datos para exportar el reporte.");
+      return;
+    }
+    try {
+      exportarExcel(reporteExportData);
+    } catch (error) {
+      toast.error("No pudimos generar el Excel. Intentalo de nuevo.");
+    }
+  };
 
-    const consumptionHeaders = ["Material", "Color", "Marca", "Gramos usados"];
-    const consumptionRows = materialConsumptionRows.map((row) => [
-      row.material,
-      row.color,
-      row.brand,
-      row.grams.toFixed(0),
-    ]);
-
-    const escapeXml = (value: string) =>
-      value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\"/g, "&quot;")
-        .replace(/'/g, "&apos;");
-
-    const buildWorksheet = (name: string, sheetRows: string[][]) => {
-      const rowsXml = sheetRows
-        .map((row) => {
-          const cells = row
-            .map((cell) => {
-              const isNumber = cell !== "" && Number.isFinite(Number(cell));
-              const type = isNumber ? "Number" : "String";
-              return `<Cell><Data ss:Type="${type}">${escapeXml(cell)}</Data></Cell>`;
-            })
-            .join("");
-          return `<Row>${cells}</Row>`;
-        })
-        .join("");
-      return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${rowsXml}</Table></Worksheet>`;
-    };
-
-    const workbook = `<?xml version="1.0"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  ${buildWorksheet("Historial", [headers, ...rows])}
-  ${buildWorksheet("Consumo material", [consumptionHeaders, ...consumptionRows])}
-</Workbook>`;
-
-    const blob = new Blob([workbook], { type: "application/vnd.ms-excel" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `reporte-mensual-${reportYear}-${String(reportMonth + 1).padStart(2, "0")}.xls`;
-    a.click();
+  const handleExportPdf = async () => {
+    if (monthlyReportRecords.length === 0) {
+      toast.error("No hay datos para exportar el reporte.");
+      return;
+    }
+    try {
+      await exportarPDF(reporteExportData, reportCardsRef.current);
+    } catch (error) {
+      toast.error("No pudimos generar el PDF. Intentalo de nuevo.");
+    }
   };
 
   const formatTime = (minutes: number) => {
@@ -1671,7 +1426,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const totalToys = records.length;
   const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
   const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
-  const totalHours = revenueRecords.reduce((sum, r) => sum + r.inputs.timeMinutes, 0) / 60;
   const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
   const mostProfitable =
     revenueRecords.length > 0
@@ -1714,13 +1468,25 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const dateB = parseRecordDate(b.date)?.getTime() ?? 0;
     return dateB - dateA;
   });
-  const monthlyTotal = monthlyRecords.reduce((sum, record) => sum + (record.total || record.breakdown.finalPrice), 0);
-  const monthlyAverage = monthlyRecords.length > 0 ? monthlyTotal / monthlyRecords.length : 0;
-  const monthlyProductTotals = monthlyRecords.reduce<Record<string, number>>((acc, record) => {
-    const name = record.productName || record.name || "Producto";
-    acc[name] = (acc[name] ?? 0) + (record.total || record.breakdown.finalPrice);
-    return acc;
-  }, {});
+  const consumoImpresiones = useMemo(() => {
+    const impresiones: ImpresionConsumoInput[] = [...monthlyRecords, ...monthlyFailedRecords].map((record) => {
+      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+      const tiempoTotal = (record.inputs.timeMinutes / 60) * quantity;
+      const filamentoTotal = getRequiredGramsForRecord(record);
+      const energiaTotal = record.breakdown.energyCost * quantity;
+      const isFailed = record.status === "finalizada_fallida";
+      const porcentajeCompletado = isFailed ? (record.failure?.percentPrinted ?? 0) / 100 : 1;
+      return {
+        estado: isFailed ? "fallida" : "terminada",
+        tiempoTotal,
+        filamentoTotal,
+        energiaTotal,
+        porcentajeCompletado,
+      };
+    });
+    return calcularConsumoImpresiones(impresiones);
+  }, [monthlyRecords, monthlyFailedRecords]);
+  const reportHours = consumoImpresiones.tiempoTotalConsumido;
   const materialConsumptionByMaterial = new Map<string, number>();
   const materialConsumptionByColor = new Map<string, number>();
   const materialConsumptionByBrand = new Map<string, number>();
@@ -1760,15 +1526,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
   });
 
-  const materialConsumptionByMaterialList = Array.from(materialConsumptionByMaterial.entries())
-    .map(([material, grams]) => ({ material, grams }))
-    .sort((a, b) => b.grams - a.grams);
-  const materialConsumptionByColorList = Array.from(materialConsumptionByColor.entries())
-    .map(([color, grams]) => ({ color, grams }))
-    .sort((a, b) => b.grams - a.grams);
-  const materialConsumptionByBrandList = Array.from(materialConsumptionByBrand.entries())
-    .map(([brand, grams]) => ({ brand, grams }))
-    .sort((a, b) => b.grams - a.grams);
   const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
   const productionRecords = records.filter((record) => record.status === "en_produccion");
   const tableRecords =
@@ -1785,10 +1542,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
         : "Cotizaciones";
   const HistoryIcon = activeSection === "production" ? Factory : History;
   const isReportView = activeSection === "reports";
-  const topProducts = Object.entries(monthlyProductTotals)
-    .map(([name, total]) => ({ name, total }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
   const reporteMensual = useMemo(() => {
     const ventas: VentaMensual[] = monthlyRecords.map((record) => {
       const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
@@ -1840,6 +1593,64 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
     return generarReporteMensual(ventas, fallos, consumo);
   }, [monthlyRecords, monthlyFailedRecords, materialStock]);
+  const reporteExportData = useMemo<ReporteExportData>(() => {
+    const detalle = monthlyReportRecords.map((record) => {
+      const snapshot = resolveMaterialSnapshotFromRecord(record);
+      const isFailed = record.status === "finalizada_fallida";
+      const priceValue = isFailed ? 0 : record.breakdown.finalPrice;
+      const profitValue = isFailed ? 0 : record.breakdown.profit;
+      return {
+        fecha: record.date,
+        producto: record.productName || record.name || "Producto",
+        categoria: record.category || "General",
+        estado: record.status,
+        tiempoMin: Number(record.inputs.timeMinutes.toFixed(0)),
+        materialGrams: Number(record.inputs.materialGrams.toFixed(0)),
+        costoTotal: Number(record.breakdown.totalCost.toFixed(0)),
+        precioVenta: Number(priceValue.toFixed(0)),
+        ganancia: Number(profitValue.toFixed(0)),
+        material: snapshot?.materialType ?? "",
+        color: snapshot?.colorName ?? "",
+        marca: snapshot?.brandName ?? "",
+        gramosUsados: snapshot?.grams ? Number(snapshot.grams.toFixed(0)) : 0,
+        gramosPerdidos: record.failure?.gramsLost ? Number(record.failure.gramsLost.toFixed(0)) : 0,
+        costoMaterialPerdido: record.failure?.materialCostLost
+          ? Number(record.failure.materialCostLost.toFixed(0))
+          : 0,
+        costoEnergiaPerdida: record.failure?.energyCostLost
+          ? Number(record.failure.energyCostLost.toFixed(0))
+          : 0,
+        notaFallo: record.failure?.note ?? "",
+      };
+    });
+
+    const consumoDetalle = materialConsumptionRows.map((row) => ({
+      material: row.material,
+      color: row.color,
+      marca: row.brand,
+      gramos: Number(row.grams.toFixed(0)),
+    }));
+
+    return {
+      periodoLabel: `${reportMonthLabel} ${reportYear}`.trim(),
+      periodoKey: `${reportYear}-${String(reportMonth + 1).padStart(2, "0")}`,
+      ingresos: reporteMensual.ingresos,
+      perdidas: reporteMensual.perdidas,
+      consumoFilamento: reporteMensual.consumoFilamento,
+      topProductos: reporteMensual.topProductos,
+      rentabilidadNeta: reporteMensual.rentabilidadNeta,
+      insights: reporteMensual.insights,
+      detalle,
+      consumoDetalle,
+    };
+  }, [
+    materialConsumptionRows,
+    monthlyReportRecords,
+    reportMonth,
+    reportMonthLabel,
+    reportYear,
+    reporteMensual,
+  ]);
   const availableYears = Array.from(
     new Set(
       records
@@ -2439,7 +2250,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Clock size={32} />
-                    <span className="text-3xl font-bold">{totalHours.toFixed(0)}</span>
+                    <span className="text-3xl font-bold">{reportHours.toFixed(0)}</span>
                   </div>
                   <p className="text-sm font-medium opacity-90">Horas de impresión</p>
                 </motion.div>
@@ -2515,7 +2326,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               )}
 
               {activeSection === "reports" && (
-                <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6 relative">
+                <div
+                  id="proMonthlyReport"
+                  ref={reportCardsRef}
+                  className="bg-white rounded-3xl shadow-2xl p-8 mb-6 relative"
+                >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h2 className="text-2xl font-bold text-gray-800">Reporte mensual de rentabilidad</h2>
@@ -2611,6 +2426,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       </div>
                       <p className="mt-1 text-sm opacity-90">Consumo de filamento</p>
                       <div className="mt-3 space-y-1 text-xs">
+                        <p className="opacity-90">
+                          Horas impresas: {consumoImpresiones.tiempoTotalConsumido.toFixed(1)} h
+                        </p>
+                        <p className="opacity-90">
+                          Energia estimada: {formatCurrency(consumoImpresiones.energiaTotalConsumida)}
+                        </p>
                         {reporteMensual.consumoFilamento.porTipo.length === 0 ? (
                           <p className="opacity-80">Sin consumo registrado este mes.</p>
                         ) : (
@@ -2785,7 +2606,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         ))}
                       </select>
                       <button
-                        onClick={exportMonthlyReportPdf}
+                        id="btnExportPDF"
+                        onClick={handleExportPdf}
                         disabled={monthlyRecords.length === 0}
                         className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                       >
@@ -2794,7 +2616,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       </button>
                     </div>
                     <button
-                      onClick={exportToCSV}
+                      id="btnExportExcel"
+                      onClick={handleExportExcel}
                       disabled={monthlyRecords.length === 0}
                       className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                     >
