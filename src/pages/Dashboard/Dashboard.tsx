@@ -55,6 +55,7 @@ import {
 } from "../../utils/pdfTheme";
 import { loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
+import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
 
 type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
 
@@ -475,6 +476,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const materialSelectRef = useRef<HTMLSelectElement | null>(null);
   const stockHighlightTimerRef = useRef<number | null>(null);
   const reportCardsRef = useRef<HTMLDivElement | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(() => isDarkModeEnabled());
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -500,6 +502,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       }
     };
   }, []);
+
+  const handleToggleDarkMode = () => {
+    const next = toggleDarkMode();
+    setIsDarkMode(next === "dark");
+  };
 
   const persistMaterialStock = (nextStock: MaterialSpool[]) => {
     localStorage.setItem(MATERIAL_STOCK_KEY, JSON.stringify(nextStock));
@@ -1799,7 +1806,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const topProductosChartMax = Math.max(1, ...reporteMensual.topProductos.chart.values);
   const rentabilidadPositive = reporteMensual.rentabilidadNeta.neto >= 0;
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 relative overflow-hidden">
+    <div className="min-h-screen bg-app-gradient relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           animate={{ y: [0, -20, 0], rotate: [0, 10, 0] }}
@@ -1866,7 +1873,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               })}
             </div>
           </aside>
-          <main className="flex-1">
+          <main className="flex-1" data-section={activeSection}>
             {showStockBanner && (
               <div className="mb-6 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -3565,11 +3572,40 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
         {activeSection === "settings" && (
           <section className="max-w-5xl mx-auto mt-10">
-            <div className="bg-white rounded-3xl shadow-2xl p-8">
-              <h2 className="text-2xl font-bold text-gray-800">Configuración</h2>
-              <p className="mt-2 text-sm text-gray-600">Ajustes generales de la app.</p>
-              <div className="mt-6 rounded-2xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
-                Sección en construcción.
+            <div className="rounded-3xl p-8 shadow-2xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+              <h2 className="text-2xl font-bold text-[color:var(--color-text)]">Configuracion</h2>
+              <p className="mt-2 text-sm text-[color:var(--color-text-muted)]">
+                Ajustes generales de la calculadora.
+              </p>
+              <div className="mt-6 grid gap-4">
+                <div className="rounded-2xl border border-[color:var(--color-card-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-[color:var(--color-card-text)]">Modo oscuro</h3>
+                      <p className="mt-1 text-sm text-[color:var(--color-card-text-muted)]">
+                        Cambia la interfaz de la calculadora entre claro y oscuro.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isDarkMode}
+                      onClick={handleToggleDarkMode}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full px-1 transition-colors ${
+                        isDarkMode ? "bg-[color:var(--color-accent-strong)]" : "bg-[color:var(--color-border)]"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-[color:var(--color-surface)] shadow-sm transition ${
+                          isDarkMode ? "translate-x-6" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-dashed border-[color:var(--color-border)] p-6 text-sm text-[color:var(--color-text-muted)]">
+                  Seccion en construccion.
+                </div>
               </div>
             </div>
           </section>

@@ -1,7 +1,9 @@
 :root {
   --color-bg: #eaf3ff;
   --color-bg-secondary: #f7faff;
+  --color-bg-tertiary: #ffffff;
   --color-text: #111111;
+  --color-text-muted: #475569;
   --color-surface: #ffffff;
   --color-border: rgba(15, 23, 42, 0.08);
   --color-accent: #5b9dff;
@@ -10,4 +12,28 @@
   --radius-md: 0.75rem;
   --shadow-soft: 0 20px 40px rgba(15, 23, 42, 0.12);
   --shadow-card: 0 12px 30px rgba(15, 23, 42, 0.08);
+  --color-card-bg: var(--color-surface);
+  --color-card-text: var(--color-text);
+  --color-card-text-muted: var(--color-text-muted);
+  --color-card-border: var(--color-border);
+  --color-card-shadow: var(--shadow-card);
+}
+
+.dark {
+  --color-bg: #000000;
+  --color-bg-secondary: #050505;
+  --color-bg-tertiary: #0b0b0b;
+  --color-text: #f8fafc;
+  --color-text-muted: #cbd5f5;
+  --color-surface: #0b0b0b;
+  --color-border: rgba(148, 163, 184, 0.2);
+  --color-accent: #7cb2ff;
+  --color-accent-strong: #5a93f5;
+  --shadow-soft: 0 20px 40px rgba(2, 6, 23, 0.5);
+  --shadow-card: 0 12px 30px rgba(2, 6, 23, 0.45);
+  --color-card-bg: #0b0b0b;
+  --color-card-text: #e2e8f0;
+  --color-card-text-muted: #94a3b8;
+  --color-card-border: rgba(148, 163, 184, 0.22);
+  --color-card-shadow: var(--shadow-card);
 }

@@ -34,7 +34,139 @@
 
 .card {
   border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-  border: 1px solid var(--color-border);
+  background: var(--color-card-bg);
+  color: var(--color-card-text);
+  box-shadow: var(--color-card-shadow);
+  border: 1px solid var(--color-card-border);
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.dark,
+.dark body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.dark .bg-white {
+  background-color: var(--color-surface) !important;
+}
+
+.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+
+.dark .bg-white\/80 {
+  background-color: rgba(15, 23, 42, 0.8) !important;
+}
+
+.dark .bg-white\/70 {
+  background-color: rgba(15, 23, 42, 0.7) !important;
+}
+
+.dark .bg-white\/30 {
+  background-color: rgba(15, 23, 42, 0.3) !important;
+}
+
+.dark .bg-white\/20 {
+  background-color: rgba(15, 23, 42, 0.2) !important;
+}
+
+.dark .bg-gray-50 {
+  background-color: var(--color-surface) !important;
+}
+
+.dark .bg-gray-50\/60 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+.dark .bg-gray-100 {
+  background-color: #111827 !important;
+}
+
+.dark .bg-gray-200 {
+  background-color: #1f2937 !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: var(--color-surface) !important;
+}
+
+.dark .text-gray-900,
+.dark .text-gray-800 {
+  color: var(--color-text) !important;
+}
+
+.dark .text-gray-700,
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-gray-400,
+.dark .text-gray-300 {
+  color: var(--color-text-muted) !important;
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 {
+  color: var(--color-text-muted) !important;
+}
+
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .border-slate-200 {
+  border-color: var(--color-border) !important;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.dark [data-section="reports"] .bg-gradient-to-br {
+  background-image: none !important;
+  background-color: var(--color-surface) !important;
+}
+
+.dark [data-section="reports"] .bg-red-50,
+.dark [data-section="reports"] .bg-amber-50,
+.dark [data-section="reports"] .bg-slate-50 {
+  background-color: var(--color-surface) !important;
+}
+
+.dark [data-section="reports"] .border-red-100,
+.dark [data-section="reports"] .border-amber-100,
+.dark [data-section="reports"] .border-slate-200 {
+  border-color: var(--color-border) !important;
+}
+
+.dark [data-section="reports"] .text-red-700,
+.dark [data-section="reports"] .text-red-500,
+.dark [data-section="reports"] .text-amber-700,
+.dark [data-section="reports"] .text-amber-600,
+.dark [data-section="reports"] .text-slate-700,
+.dark [data-section="reports"] .text-slate-500 {
+  color: var(--color-text) !important;
+}
+
+.dark .hover\:bg-gray-50:hover {
+  background-color: #111827 !important;
+}
+
+.dark .hover\:bg-gray-100:hover {
+  background-color: #1f2937 !important;
+}
+
+.dark .hover\:bg-gray-200:hover {
+  background-color: #334155 !important;
 }
