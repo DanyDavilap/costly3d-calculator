@@ -32,6 +32,12 @@ import {
   PricingParams,
 } from "../../utils/pricingCalculator";
 import { calculateProfitability } from "../../utils/profitability";
+import {
+  generarReporteMensual,
+  type ConsumoMensual,
+  type FalloMensual,
+  type VentaMensual,
+} from "../../utils/reporteMensual";
 import ColorPicker, { type ColorOption } from "../../components/ui/ColorPicker";
 import {
   createPdfTheme,
@@ -1783,6 +1789,57 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .map(([name, total]) => ({ name, total }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
+  const reporteMensual = useMemo(() => {
+    const ventas: VentaMensual[] = monthlyRecords.map((record) => {
+      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+      const unitPrice = record.total || record.breakdown.finalPrice;
+      const total = unitPrice * quantity;
+      const costTotal = record.breakdown.totalCost * quantity;
+      return {
+        productName: record.productName || record.name || "Producto",
+        quantity,
+        unitPrice,
+        total,
+        costTotal,
+      };
+    });
+
+    const fallos: FalloMensual[] = monthlyFailedRecords.map((record) => ({
+      productName: record.productName || record.name || "Producto",
+      gramsLost: record.failure?.gramsLost ?? 0,
+      piecesFailed:
+        typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1,
+      materialCostLost: record.failure?.materialCostLost ?? 0,
+      energyCostLost: record.failure?.energyCostLost ?? 0,
+    }));
+
+    const consumoMap = new Map<string, number>();
+    const pushConsumo = (materialType: string, gramsUsed: number) => {
+      if (!Number.isFinite(gramsUsed) || gramsUsed <= 0) return;
+      const key = materialType || "Otro";
+      consumoMap.set(key, (consumoMap.get(key) ?? 0) + gramsUsed);
+    };
+
+    monthlyRecords.forEach((record) => {
+      const snapshot = resolveMaterialSnapshotFromRecord(record);
+      if (!snapshot) return;
+      pushConsumo(snapshot.materialType || "Otro", snapshot.grams);
+    });
+
+    monthlyFailedRecords.forEach((record) => {
+      const snapshot = resolveMaterialSnapshotFromRecord(record);
+      const gramsLost = record.failure?.gramsLost ?? 0;
+      if (!snapshot) return;
+      pushConsumo(snapshot.materialType || "Otro", gramsLost);
+    });
+
+    const consumo: ConsumoMensual[] = Array.from(consumoMap.entries()).map(([materialType, gramsUsed]) => ({
+      materialType,
+      gramsUsed,
+    }));
+
+    return generarReporteMensual(ventas, fallos, consumo);
+  }, [monthlyRecords, monthlyFailedRecords, materialStock]);
   const availableYears = Array.from(
     new Set(
       records
@@ -1795,6 +1852,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     .sort((a, b) => b - a);
 
   const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+  const ingresosChartMax = Math.max(1, ...reporteMensual.ingresos.chart.values);
+  const consumoChartMax = Math.max(1, ...reporteMensual.consumoFilamento.chart.values);
+  const topProductosChartMax = Math.max(1, ...reporteMensual.topProductos.chart.values);
+  const rentabilidadPositive = reporteMensual.rentabilidadNeta.neto >= 0;
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -2451,6 +2512,242 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     </RechartsBarChart>
                   </ResponsiveContainer>
                 </motion.div>
+              )}
+
+              {activeSection === "reports" && (
+                <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6 relative">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-800">Reporte mensual de rentabilidad</h2>
+                      <p className="text-sm text-gray-600">
+                        Metrica profesional del mes con ingresos, fallos y consumo de filamento.
+                      </p>
+                    </div>
+                    <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
+                      PRO
+                    </span>
+                  </div>
+
+                  <div
+                    className={`mt-6 grid md:grid-cols-3 gap-4 ${
+                      isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"
+                    }`}
+                  >
+                    <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">💰</span>
+                        <span className="text-2xl font-bold">
+                          {isProEnabled ? formatCurrency(reporteMensual.ingresos.total) : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Ingresos reales</p>
+                      <div className="mt-3 space-y-2 text-xs">
+                        {reporteMensual.ingresos.productos.length === 0 ? (
+                          <p className="opacity-80">Sin ventas registradas este mes.</p>
+                        ) : (
+                          reporteMensual.ingresos.productos.slice(0, 3).map((item) => (
+                            <div key={item.name} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">{item.name}</span>
+                                <span className="font-semibold">{formatCurrency(item.subtotal)}</span>
+                              </div>
+                              <p className="text-[11px] opacity-80">
+                                {item.quantity} x {formatCurrency(item.unitPrice)}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {reporteMensual.ingresos.chart.values.length === 0 ? (
+                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                        ) : (
+                          reporteMensual.ingresos.chart.values.map((value, index) => {
+                            const label = reporteMensual.ingresos.chart.labels[index] ?? "Producto";
+                            const width = Math.min(100, (value / ingresosChartMax) * 100);
+                            return (
+                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                <span className="w-16 truncate">{label}</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">⚠️</span>
+                        <span className="text-2xl font-bold">
+                          {isProEnabled ? formatCurrency(reporteMensual.perdidas.total) : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Perdidas por fallos</p>
+                      <div className="mt-3 flex items-center justify-between gap-4 text-xs">
+                        <div className="space-y-1">
+                          <p>Filamento perdido: {reporteMensual.perdidas.filamentoDesperdiciadoGramos.toFixed(0)} g</p>
+                          <p>Piezas fallidas: {reporteMensual.perdidas.piezasFallidas}</p>
+                          <p>Costos asociados: {formatCurrency(reporteMensual.perdidas.costos)}</p>
+                        </div>
+                        <div
+                          className="h-12 w-12 rounded-full"
+                          style={{
+                            background: `conic-gradient(rgba(255,255,255,0.95) ${reporteMensual.perdidas.chart.lossPct}%, rgba(255,255,255,0.2) 0)`,
+                          }}
+                          aria-label="Porcentaje de perdidas"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">🧵</span>
+                        <span className="text-2xl font-bold">
+                          {isProEnabled ? `${reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g` : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Consumo de filamento</p>
+                      <div className="mt-3 space-y-1 text-xs">
+                        {reporteMensual.consumoFilamento.porTipo.length === 0 ? (
+                          <p className="opacity-80">Sin consumo registrado este mes.</p>
+                        ) : (
+                          reporteMensual.consumoFilamento.porTipo.slice(0, 3).map((item) => (
+                            <div key={item.material} className="flex items-center justify-between">
+                              <span>{item.material}</span>
+                              <span className="font-semibold">{item.grams.toFixed(0)} g</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {reporteMensual.consumoFilamento.chart.values.length === 0 ? (
+                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                        ) : (
+                          reporteMensual.consumoFilamento.chart.values.map((value, index) => {
+                            const label = reporteMensual.consumoFilamento.chart.labels[index] ?? "Material";
+                            const width = Math.min(100, (value / consumoChartMax) * 100);
+                            return (
+                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                <span className="w-16 truncate">{label}</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-emerald-500 to-blue-500 rounded-2xl shadow-lg p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">⭐</span>
+                        <span className="text-2xl font-bold">
+                          {isProEnabled ? reporteMensual.topProductos.items.length : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Top productos</p>
+                      <div className="mt-3 space-y-2 text-xs">
+                        {reporteMensual.topProductos.items.length === 0 ? (
+                          <p className="opacity-80">Sin productos destacados este mes.</p>
+                        ) : (
+                          reporteMensual.topProductos.items.slice(0, 3).map((item) => (
+                            <div key={item.name} className="flex items-center justify-between">
+                              <div>
+                                <p className="font-semibold">{item.name}</p>
+                                <p className="text-[11px] opacity-80">
+                                  {item.unidades} uds · {item.margenPct.toFixed(1)}% margen
+                                </p>
+                              </div>
+                              <span className="font-semibold">{formatCurrency(item.ingresos)}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {reporteMensual.topProductos.chart.values.length === 0 ? (
+                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                        ) : (
+                          reporteMensual.topProductos.chart.values.map((value, index) => {
+                            const label = reporteMensual.topProductos.chart.labels[index] ?? "Producto";
+                            const width = Math.min(100, (value / topProductosChartMax) * 100);
+                            return (
+                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                <span className="w-16 truncate">{label}</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-2xl shadow-lg p-5 text-white ${
+                        rentabilidadPositive
+                          ? "bg-gradient-to-br from-emerald-500 to-emerald-600"
+                          : "bg-gradient-to-br from-red-500 to-red-600"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">📈</span>
+                        <span className="text-2xl font-bold">
+                          {isProEnabled ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Rentabilidad neta</p>
+                      <p className="mt-3 text-sm">
+                        Margen neto:{" "}
+                        <span className="font-semibold">
+                          {reporteMensual.rentabilidadNeta.margenPct.toFixed(1)}%
+                        </span>
+                      </p>
+                      <div className="mt-3 h-2 rounded-full bg-white/20">
+                        <div
+                          className="h-2 rounded-full bg-white/80"
+                          style={{
+                            width: `${Math.min(100, Math.abs(reporteMensual.rentabilidadNeta.margenPct))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-yellow-400 to-amber-500 rounded-2xl shadow-lg p-5 text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">📝</span>
+                        <span className="text-sm font-semibold">Insights</span>
+                      </div>
+                      <p className="mt-1 text-sm opacity-90">Recomendaciones</p>
+                      <div className="mt-3 space-y-2 text-xs">
+                        {reporteMensual.insights.map((item, index) => (
+                          <p key={`${item}-${index}`}>• {item}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {!isProEnabled && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                      <div className="text-center px-6">
+                        <p className="text-sm text-gray-600 mb-4">
+                          Desbloquea el reporte mensual con Costly3D PRO.
+                        </p>
+                        <button
+                          type="button"
+                          className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                          onClick={() => handleOpenProModal("cta")}
+                        >
+                          Acceso anticipado PRO
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {(activeSection === "quotations" ||
