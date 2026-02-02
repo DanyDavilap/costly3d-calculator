@@ -14,6 +14,7 @@ import {
   Clock,
   Box,
   Package,
+  BookOpen,
   Save,
   Trash2,
   Lock,
@@ -56,6 +57,11 @@ import {
 import { BRAND_STORAGE_KEY, loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
 import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
+import {
+  compararEscenariosV1,
+  type EscenarioComparadorV1Input,
+} from "../../utils/escenariosComparadorV1";
+import WikiLayout from "../../wiki/components/WikiLayout";
 
 type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
 
@@ -412,6 +418,8 @@ type DashboardSection =
   | "calculator"
   | "quotations"
   | "production"
+  | "scenarios"
+  | "wiki"
   | "stock"
   | "reports"
   | "profitability"
@@ -491,6 +499,30 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [devResetTarget, setDevResetTarget] = useState<
     "all" | "stock" | "quotes" | "production" | "failed" | "seed" | null
   >(null);
+  const [scenarioInputs, setScenarioInputs] = useState<EscenarioComparadorV1Input[]>(() => [
+    {
+      id: "escenario-1",
+      nombre: "Escenario A",
+      cantidadImpresiones: 10,
+      precioUnitario: 6000,
+      costoMaterialPorGramo: 30,
+      gramosPorImpresion: 120,
+      costoEnergiaPorImpresion: 180,
+      porcentajeFallos: 10,
+      porcentajeImpresoFallida: 50,
+    },
+    {
+      id: "escenario-2",
+      nombre: "Escenario B",
+      cantidadImpresiones: 10,
+      precioUnitario: 7000,
+      costoMaterialPorGramo: 28,
+      gramosPorImpresion: 110,
+      costoEnergiaPorImpresion: 160,
+      porcentajeFallos: 6,
+      porcentajeImpresoFallida: 40,
+    },
+  ]);
 
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
@@ -520,6 +552,45 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const handleToggleDarkMode = () => {
     const next = toggleDarkMode();
     setIsDarkMode(next === "dark");
+  };
+
+  const updateScenarioField = (
+    id: string,
+    field: keyof EscenarioComparadorV1Input,
+    value: string,
+  ) => {
+    setScenarioInputs((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        if (field === "nombre") {
+          return { ...item, [field]: value };
+        }
+        const numericValue = Number.parseFloat(value);
+        return { ...item, [field]: Number.isNaN(numericValue) ? 0 : numericValue };
+      }),
+    );
+  };
+
+  const addScenario = () => {
+    const nextIndex = scenarioInputs.length + 1;
+    setScenarioInputs((prev) => [
+      ...prev,
+      {
+        id: `escenario-${Date.now()}`,
+        nombre: `Escenario ${nextIndex}`,
+        cantidadImpresiones: 10,
+        precioUnitario: 6000,
+        costoMaterialPorGramo: 30,
+        gramosPorImpresion: 120,
+        costoEnergiaPorImpresion: 180,
+        porcentajeFallos: 8,
+        porcentajeImpresoFallida: 50,
+      },
+    ]);
+  };
+
+  const removeScenario = (id: string) => {
+    setScenarioInputs((prev) => prev.filter((item) => item.id !== id));
   };
 
   const closeDevResetModal = () => {
@@ -2088,6 +2159,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     reportYear,
     reporteMensual,
   ]);
+  const escenariosResumen = useMemo(() => compararEscenariosV1(scenarioInputs), [scenarioInputs]);
   const availableYears = Array.from(
     new Set(
       records
@@ -2148,6 +2220,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   { id: "calculator", label: "Calculadora", icon: Calculator },
                   { id: "quotations", label: "Cotizaciones", icon: FileText },
                   { id: "production", label: "Producción", icon: Factory },
+                  { id: "scenarios", label: "Comparador", icon: BarChart3 },
+                  { id: "wiki", label: "Wiki", icon: BookOpen },
                   { id: "reports", label: "Reportes", icon: BarChart3 },
                   { id: "profitability", label: "Rentabilidad", icon: TrendingUp },
                   { id: "branding", label: "Branding", icon: Palette },
@@ -3332,6 +3406,204 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {activeSection === "scenarios" && (
+          <section className="max-w-6xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Comparador de escenarios (v1)</h2>
+                  <p className="text-sm text-gray-600">
+                    Simulá escenarios sin afectar producción real, stock ni reportes.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addScenario}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                >
+                  Agregar escenario
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-gray-200 text-left">
+                      <th className="py-3 px-3 font-semibold text-gray-700">Nombre</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">Cantidad</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">Precio unit.</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">Costo material/g</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">g por impresión</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">Costo energía</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">% fallos</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700">% impreso</th>
+                      <th className="py-3 px-3 font-semibold text-gray-700 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scenarioInputs.map((scenario) => (
+                      <tr key={scenario.id} className="border-b border-gray-100">
+                        <td className="py-3 px-3">
+                          <input
+                            value={scenario.nombre}
+                            onChange={(event) => updateScenarioField(scenario.id, "nombre", event.target.value)}
+                            className="w-40 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.cantidadImpresiones}
+                            onChange={(event) =>
+                              updateScenarioField(scenario.id, "cantidadImpresiones", event.target.value)
+                            }
+                            className="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.precioUnitario}
+                            onChange={(event) => updateScenarioField(scenario.id, "precioUnitario", event.target.value)}
+                            className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.costoMaterialPorGramo}
+                            onChange={(event) =>
+                              updateScenarioField(scenario.id, "costoMaterialPorGramo", event.target.value)
+                            }
+                            className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.gramosPorImpresion}
+                            onChange={(event) =>
+                              updateScenarioField(scenario.id, "gramosPorImpresion", event.target.value)
+                            }
+                            className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.costoEnergiaPorImpresion}
+                            onChange={(event) =>
+                              updateScenarioField(scenario.id, "costoEnergiaPorImpresion", event.target.value)
+                            }
+                            className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.porcentajeFallos}
+                            onChange={(event) => updateScenarioField(scenario.id, "porcentajeFallos", event.target.value)}
+                            className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3">
+                          <input
+                            type="number"
+                            value={scenario.porcentajeImpresoFallida}
+                            onChange={(event) =>
+                              updateScenarioField(scenario.id, "porcentajeImpresoFallida", event.target.value)
+                            }
+                            className="w-20 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeScenario(scenario.id)}
+                            className="text-red-500 hover:text-red-600 font-semibold text-xs"
+                            disabled={scenarioInputs.length <= 2}
+                          >
+                            Quitar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-8">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Resultados comparativos</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b-2 border-gray-200 text-left">
+                        <th className="py-3 px-3 font-semibold text-gray-700">Escenario</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">OK</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Fallidas</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Material usado (g)</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Material perdido (g)</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Costos totales</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Ingresos</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Ganancia neta</th>
+                        <th className="py-3 px-3 font-semibold text-gray-700">Margen %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {escenariosResumen.escenarios.map((scenario) => {
+                        const isBestGain = scenario.id === escenariosResumen.mejorGananciaId;
+                        const isBestMargin = scenario.id === escenariosResumen.mejorMargenId;
+                        return (
+                          <tr
+                            key={scenario.id}
+                            className={`border-b border-gray-100 ${isBestGain ? "bg-green-50" : ""}`}
+                          >
+                            <td className="py-3 px-3 font-semibold text-gray-800">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>{scenario.nombre}</span>
+                                {isBestGain && (
+                                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                                    Mejor ganancia
+                                  </span>
+                                )}
+                                {isBestMargin && (
+                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                    Mejor margen
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-gray-700">{scenario.impresionesOk.toFixed(1)}</td>
+                            <td className="py-3 px-3 text-gray-700">{scenario.impresionesFallidas.toFixed(1)}</td>
+                            <td className="py-3 px-3 text-gray-700">{scenario.materialTotalUsado.toFixed(1)}</td>
+                            <td className="py-3 px-3 text-gray-700">{scenario.materialPerdido.toFixed(1)}</td>
+                            <td className="py-3 px-3 text-gray-800 font-semibold">
+                              {formatCurrency(scenario.costoTotal)}
+                            </td>
+                            <td className="py-3 px-3 text-gray-800 font-semibold">
+                              {formatCurrency(scenario.ingresosTotales)}
+                            </td>
+                            <td className="py-3 px-3 text-emerald-600 font-semibold">
+                              {formatCurrency(scenario.gananciaNeta)}
+                            </td>
+                            <td className="py-3 px-3 text-gray-700">{scenario.margen.toFixed(1)}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeSection === "wiki" && (
+          <section className="max-w-6xl mx-auto mt-10">
+            <WikiLayout isProEnabled={isProEnabled} onUnlockPro={() => handleOpenProModal("cta")} />
+          </section>
+        )}
 
         {activeSection === "stock" && (
           <section className="max-w-5xl mx-auto mt-10">

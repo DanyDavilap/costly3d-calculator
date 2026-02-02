@@ -12,6 +12,7 @@ const ItemsPage = lazy(() => import("../pages/Items/Items"));
 const FaltantesPage = lazy(() => import("../pages/Faltantes/Faltantes"));
 const ReportesPage = lazy(() => import("../pages/Reportes/Reportes"));
 const ConfigPage = lazy(() => import("../pages/Configuracion/Configuracion"));
+const WikiPage = lazy(() => import("../pages/Wiki/Wiki"));
 
 function ProtectedRoute() {
   return <Outlet />;
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
           { path: "faltantes", element: <FaltantesPage /> },
           { path: "reportes", element: <ReportesPage /> },
           { path: "configuracion", element: <ConfigPage /> },
+          { path: "wiki", element: <WikiPage /> },
         ],
       },
       { path: "login", element: <LoginPage /> },

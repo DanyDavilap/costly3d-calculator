@@ -4,6 +4,7 @@ import {
   FileSpreadsheet,
   PackageCheck,
   ClipboardList,
+  BookOpen,
   Settings,
 } from "lucide-react";
 
@@ -12,6 +13,7 @@ const links = [
   { to: "/items", label: "Items", icon: FileSpreadsheet },
   { to: "/faltantes", label: "Faltantes", icon: PackageCheck },
   { to: "/reportes", label: "Reportes", icon: ClipboardList },
+  { to: "/wiki", label: "Wiki", icon: BookOpen },
   { to: "/configuracion", label: "Configuración", icon: Settings },
 ];
 
