@@ -3480,7 +3480,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               className="max-w-7xl mx-auto"
             >
               {activeSection === "reports" && (
-                <div id="proMonthlyReport" ref={reportCardsRef} className="mb-6 space-y-6">
+                <div className="relative mb-6">
+                  <div
+                    id="proMonthlyReport"
+                    ref={reportCardsRef}
+                    className={`space-y-6 ${!isProEnabled ? "blur-sm opacity-60 pointer-events-none" : ""}`}
+                  >
                   <div className="bg-white rounded-3xl shadow-2xl p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
@@ -3966,6 +3971,24 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       </div>
                     </div>
                   </details>
+                  </div>
+
+                  {!isProEnabled && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                      <div className="text-center px-6">
+                        <p className="text-sm text-gray-600 mb-4">
+                          Desbloqueá Métricas PRO para acceder a reportes y rentabilidad en un solo lugar.
+                        </p>
+                        <button
+                          type="button"
+                          className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                          onClick={() => handleOpenProModal("cta")}
+                        >
+                          Acceso anticipado PRO
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
