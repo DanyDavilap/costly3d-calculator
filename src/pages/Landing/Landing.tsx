@@ -1,4 +1,4 @@
-import "../../styles/landing.css";
+﻿import "../../styles/landing.css";
 import rentabilidadImg from "../../assets/img/rentabilidad real.png";
 import costosFijosImg from "../../assets/img/costos fijos.png";
 import historialImg from "../../assets/img/historial.png";
@@ -23,11 +23,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             <a href="#benefits">Beneficios</a>
             <a href="#cta">Empezar</a>
           </nav>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={onOpenProModal}
-          >
+          <button type="button" className="btn primary" onClick={onOpenProModal}>
             Acceso anticipado
           </button>
         </header>
@@ -36,10 +32,10 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
           <section className="hero">
             <div className="hero-copy">
               <p className="eyebrow">Para makers, talleres y negocios de impresión 3D.</p>
-              <h1>Deja de adivinar precios en impresión 3D.</h1>
+              <h1>Dejá de adivinar precios en impresión 3D.</h1>
               <p className="lead">
-                Calcula costos reales de material, energía y tiempo para poner precios rentables, con márgenes claros y
-                fáciles de repetir.
+                Calculá costos reales de material, energía y tiempo para poner precios rentables, con márgenes claros y
+                repetibles.
               </p>
               <div className="hero-actions">
                 <button type="button" className="btn primary" onClick={onStart}>
@@ -50,14 +46,17 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                 </button>
               </div>
               <div className="hero-meta">
-                <span>Multi-categoría</span>
-                <span>Historial y stock</span>
-                <span>Para makers y talleres</span>
+                <span>Precios claros</span>
+                <span>Historial reutilizable</span>
+                <span>Control de stock</span>
               </div>
             </div>
             <div className="hero-card card">
               <div className="card-header">
-                <h3>Resumen de costos</h3>
+                <div>
+                  <p className="card-eyebrow">Preview de cálculo</p>
+                  <h3>Resumen de costos</h3>
+                </div>
                 <span className="badge">Demo</span>
               </div>
               <div className="card-body">
@@ -83,50 +82,74 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
 
           <section id="features" className="section">
             <div className="section-title">
-              <h2>Calculá precios como un profesional</h2>
-              <p>Todo lo esencial para calcular costos de impresión 3D, sin hojas de cálculo ni suposiciones.</p>
+              <h2>Calculá precios con criterio profesional</h2>
+              <p>Todo lo esencial para costear impresión 3D sin planillas ni suposiciones.</p>
             </div>
             <div className="grid three">
               <article className="card feature">
-                <h3>Precios reales y claros</h3>
-                <ul className="card-points">
-                  <li>★ Materiales y consumos exactos</li>
-                  <li>★ Tiempo de impresión y energía</li>
-                  <li>★ Margen configurable por producto</li>
-                  <li>★ Total final claro, sin sorpresas</li>
+                <span className="feature-icon" aria-hidden="true">
+                  💸
+                </span>
+                <h3>Precios reales</h3>
+                <p className="feature-strong">Sabés cuánto cuesta cada pieza.</p>
+                <ul className="feature-points">
+                  <li>Material, energía y tiempo</li>
+                  <li>Margen configurable por producto</li>
                 </ul>
-                <p className="card-foot">
-                  Sabés exactamente cuánto cuesta producir cada pieza y cuánto margen real estás ganando.
-                </p>
               </article>
               <article className="card feature">
+                <span className="feature-icon" aria-hidden="true">
+                  🗂️
+                </span>
                 <h3>Historial reutilizable</h3>
-                <ul className="card-points">
-                  <li>★ Guardá cotizaciones por producto</li>
-                  <li>★ Editá costos y márgenes</li>
-                  <li>★ Reutilizá variantes en segundos</li>
+                <p className="feature-strong">Repetí cotizaciones sin empezar de cero.</p>
+                <ul className="feature-points">
+                  <li>Guardá productos y variantes</li>
+                  <li>Editá costos y márgenes</li>
                 </ul>
-                <p className="card-foot">
-                  Cada cálculo se convierte en una base de venta para productos recurrentes o variantes similares.
-                </p>
               </article>
               <article className="card feature">
-                <h3>Organización para crecer</h3>
-                <ul className="card-points">
-                  <li>★ Control de stock</li>
-                  <li>★ Organización por rubro o tipo</li>
-                  <li>★ Productos claros y comparables</li>
+                <span className="feature-icon" aria-hidden="true">
+                  📦
+                </span>
+                <h3>Organización clara</h3>
+                <p className="feature-strong">Catálogo ordenado para crecer.</p>
+                <ul className="feature-points">
+                  <li>Rubro, tipo y stock</li>
+                  <li>Productos comparables</li>
                 </ul>
-                <p className="card-foot">Dejá de tener precios en la cabeza y pasá a un sistema ordenado y escalable.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="how-it-works" className="section">
+            <div className="section-title">
+              <h2>Cómo funciona en 3 pasos</h2>
+              <p>En minutos pasás del costo al precio listo para vender.</p>
+            </div>
+            <div className="grid three">
+              <article className="card step-card">
+                <div className="step-number">1</div>
+                <h3>Cargá los datos base</h3>
+                <p>Material, consumo y horas de impresión.</p>
+              </article>
+              <article className="card step-card">
+                <div className="step-number">2</div>
+                <h3>Ajustá tu margen</h3>
+                <p>Sumá energía y armado para un precio consistente.</p>
+              </article>
+              <article className="card step-card">
+                <div className="step-number">3</div>
+                <h3>Guardá y reutilizá</h3>
+                <p>Repetí cotizaciones en segundos cuando vuelvas a vender.</p>
               </article>
             </div>
           </section>
 
           <section className="section pro-section">
             <div className="section-title">
-              <h2>Lo que Costly3D puede hacer cuando tu negocio crece</h2>
-              <p>Diseñado para makers que dejan de improvisar y empiezan a escalar.</p>
-              <p>Cuando dejás de improvisar y empezás a escalar, necesitás control real sobre tus costos.</p>
+              <h2>Lo que Costly3D habilita cuando tu negocio crece</h2>
+              <p>Más control y rentabilidad para makers que ya venden y quieren escalar.</p>
             </div>
             <div className="pro-grid">
               <article className="card pro-card">
@@ -134,7 +157,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                   <img src={rentabilidadImg} alt="Captura de desglose de costos y total sugerido" />
                 </div>
                 <h3>Rentabilidad real</h3>
-                <p>Entiende cuánto ganás realmente por cada producto, no solo el precio final.</p>
+                <p>Entendé cuánto ganás realmente por cada producto, no solo el precio final.</p>
               </article>
               <article className="card pro-card">
                 <div className="pro-image">
@@ -148,7 +171,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                   <img src={historialImg} alt="Historial con categorías visibles" />
                 </div>
                 <h3>Historial reutilizable</h3>
-                <p>Convierte cada cálculo en una base sólida para futuras cotizaciones.</p>
+                <p>Convertí cada cálculo en una base sólida para futuras cotizaciones.</p>
               </article>
               <article className="card pro-card">
                 <div className="pro-image">
@@ -162,7 +185,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
 
           <section className="section comparison-section">
             <div className="section-title">
-              <h2>Free vs Pro – Elegí cómo querés trabajar</h2>
+              <h2>Free vs Pro — Elegí cómo querés trabajar</h2>
             </div>
             <div className="comparison-grid">
               <article className="card comparison-card">
@@ -184,11 +207,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                   <li>Desglose interno avanzado</li>
                   <li>Documentos listos para enviar a clientes</li>
                 </ul>
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={onOpenProModal}
-                >
+                <button type="button" className="btn primary" onClick={onOpenProModal}>
                   Acceso anticipado a PRO
                 </button>
               </article>
@@ -198,24 +217,22 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
           <section className="section">
             <div className="section-title">
               <h2>Costly3D no es solo una calculadora.</h2>
-              <p>Es un sistema de precios profesional creado por y para makers 3D.</p>
-              <p>Cuando tus precios son claros, tu marca se percibe más fuerte, más seria y más confiable.</p>
+              <p>
+                Es un sistema de precios profesional creado por y para makers 3D, para vender con claridad,
+                consistencia y confianza.
+              </p>
             </div>
           </section>
 
           <section className="card cta pro-cta">
             <div>
-              <h2>Hoy puedes probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
+              <h2>Hoy podés probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
             </div>
             <div className="cta-actions">
               <button type="button" className="btn primary" onClick={onStart}>
                 Probar la calculadora
               </button>
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={onOpenProModal}
-              >
+              <button type="button" className="btn ghost" onClick={onOpenProModal}>
                 Acceso anticipado PRO
               </button>
             </div>
@@ -224,7 +241,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
           <section id="benefits" className="section">
             <div className="section-title">
               <h2>Convertí cada impresión en una decisión rentable</h2>
-              <p>Convierte cada impresión en una decisión rentable y repetible.</p>
+              <p>Hacé de cada impresión una decisión rentable y repetible.</p>
             </div>
             <div className="grid two">
               <div className="card benefit">
@@ -269,17 +286,13 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
           <section id="cta" className="cta card">
             <div>
               <h2>Empieza a calcular tus costos 3D con claridad.</h2>
-              <p>Accede a la calculadora y empezá a validar tus precios con una base profesional desde hoy.</p>
+              <p>Accedé a la calculadora y empezá a validar tus precios con una base profesional desde hoy.</p>
             </div>
             <div className="cta-actions">
               <button type="button" className="btn primary" onClick={onStart}>
                 Probar la calculadora
               </button>
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={onOpenProModal}
-              >
+              <button type="button" className="btn ghost" onClick={onOpenProModal}>
                 Acceso anticipado
               </button>
             </div>

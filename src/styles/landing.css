@@ -1,4 +1,4 @@
-.landing {
+﻿.landing {
   --color-bg: #eaf3ff;
   --color-bg-secondary: #f7faff;
   --color-text: #111111;
@@ -164,8 +164,23 @@
 
 .landing .card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 1rem;
+}
+
+.landing .card-eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.landing .hero-card h3 {
+  margin: 0;
+  font-size: 1.15rem;
 }
 
 .landing .badge {
@@ -358,6 +373,73 @@
   margin: 0;
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.75);
+  line-height: 1.5;
+}
+
+.landing .feature-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+  background: rgba(255, 255, 255, 0.2);
+  margin-bottom: 0.75rem;
+}
+
+.landing .feature-strong {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.landing .feature-points {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.landing .feature-points li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.landing .feature-points li::before {
+  content: "\2022";
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.landing .step-card {
+  padding: 1.5rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.landing .step-number {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+}
+
+.landing .step-card h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.landing .step-card p {
+  margin: 0;
+  color: rgba(15, 23, 42, 0.7);
   line-height: 1.5;
 }
 
