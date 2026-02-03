@@ -153,33 +153,52 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
             <div className="pro-grid">
               <article className="card pro-card">
+                <h3>Rentabilidad real</h3>
+                <p>Entendé cuánto ganás realmente por cada producto, no solo el precio final.</p>
                 <div className="pro-image">
                   <img src={rentabilidadImg} alt="Captura de desglose de costos y total sugerido" />
                 </div>
-                <h3>Rentabilidad real</h3>
-                <p>Entendé cuánto ganás realmente por cada producto, no solo el precio final.</p>
               </article>
               <article className="card pro-card">
+                <h3>Costos fijos distribuidos</h3>
+                <p>Costly3D tiene en cuenta gastos invisibles como mantenimiento, desgaste y tiempo improductivo.</p>
                 <div className="pro-image">
                   <img src={costosFijosImg} alt="Vista de inputs de cálculo de costos fijos" />
                 </div>
-                <h3>Costos fijos distribuidos</h3>
-                <p>Costly3D tiene en cuenta gastos invisibles como mantenimiento, desgaste y tiempo improductivo.</p>
               </article>
               <article className="card pro-card">
+                <h3>Historial reutilizable</h3>
+                <p>Convertí cada cálculo en una base sólida para futuras cotizaciones.</p>
                 <div className="pro-image">
                   <img src={historialImg} alt="Historial con categorías visibles" />
                 </div>
-                <h3>Historial reutilizable</h3>
-                <p>Convertí cada cálculo en una base sólida para futuras cotizaciones.</p>
               </article>
               <article className="card pro-card">
-                <div className="pro-image">
-                  <img src={cotizacionesImg} alt="Placeholder de exportación PDF y Excel" />
-                </div>
                 <h3>Cotizaciones profesionales</h3>
                 <p>Exporta presupuestos listos para enviar a clientes.</p>
+                <div className="pro-image">
+                  <img src={cotizacionesImg} alt="Captura de exportación de cotizaciones" />
+                </div>
               </article>
+            </div>
+            <div className="pro-mini">
+              <p className="pro-mini-title">Y además…</p>
+              <div className="pro-mini-grid">
+                <article className="card pro-mini-card">
+                  <span className="pro-mini-icon" aria-hidden="true">
+                    📁
+                  </span>
+                  <h3>Proyectos</h3>
+                  <p>Organizá pedidos complejos y seguí su avance sin perder control.</p>
+                </article>
+                <article className="card pro-mini-card">
+                  <span className="pro-mini-icon" aria-hidden="true">
+                    ✅
+                  </span>
+                  <h3>Plan de acción</h3>
+                  <p>Checklist inteligente para priorizar tareas y entregar a tiempo.</p>
+                </article>
+              </div>
             </div>
           </section>
 

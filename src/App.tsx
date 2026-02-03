@@ -17,7 +17,6 @@ export default function App() {
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const devMode = isDev();
-  const devForcePro = devMode;
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -34,7 +33,6 @@ export default function App() {
   const openProModal = (source: "limit" | "cta" = "cta") => {
     // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por límite FREE.
     // Punto único de entrada PRO: se reutiliza tanto por límite FREE como por CTA manual.
-    if (devForcePro) return;
     setProModalSource(source);
     setIsProModalOpen(true);
   };

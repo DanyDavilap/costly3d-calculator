@@ -262,16 +262,25 @@
 }
 
 .landing .pro-image {
-  border-radius: 1rem;
-  overflow: hidden;
+  border-radius: 0.75rem;
   background: #f8fafc;
-  border: 1px solid var(--color-border);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(120px, 18vw, 160px);
 }
 
 .landing .pro-image img {
   display: block;
   width: 100%;
+  max-width: 90%;
   height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  filter: saturate(0.85);
 }
 
 .landing .pro-card h3 {
@@ -282,6 +291,54 @@
 .landing .pro-card p {
   margin: 0;
   color: rgba(15, 23, 42, 0.7);
+}
+
+.landing .pro-mini {
+  display: grid;
+  gap: 1rem;
+}
+
+.landing .pro-mini-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+.landing .pro-mini-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.landing .pro-mini-card {
+  padding: 1.1rem 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+.landing .pro-mini-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  background: rgba(91, 157, 255, 0.12);
+  color: var(--color-accent-strong);
+}
+
+.landing .pro-mini-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.landing .pro-mini-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.65);
 }
 
 .landing .pro-cta {
