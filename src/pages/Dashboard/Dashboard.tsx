@@ -2566,14 +2566,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
   };
 
-  const totalToys = records.length;
   const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
   const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
-  const totalProfit = revenueRecords.reduce((sum, r) => sum + r.breakdown.profit, 0);
-  const mostProfitableReport =
-    revenueRecords.length > 0
-      ? revenueRecords.reduce((max, r) => (r.breakdown.profit > max.breakdown.profit ? r : max), revenueRecords[0])
-      : null;
 
   const categoryData = revenueRecords.reduce((acc: { category: string; profit: number }[], record) => {
     const existing = acc.find((item) => item.category === record.category);
@@ -2741,6 +2735,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
     return generarReporteMensual(ventas, fallos, consumo);
   }, [monthlyRecords, monthlyFailedRecords, materialStock]);
+  const rentabilidadPositive = reporteMensual.rentabilidadNeta.neto >= 0;
   const reporteExportData = useMemo<ReporteExportData>(() => {
     const detalle = monthlyReportRecords.map((record) => {
       const snapshot = resolveMaterialSnapshotFromRecord(record);
@@ -2799,6 +2794,57 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     reportYear,
     reporteMensual,
   ]);
+  const reportRecommendations = useMemo(() => {
+    const base = [...reporteMensual.insights];
+    if (!rentabilidadPositive) {
+      base.unshift("Revisá precios o costos en los productos con menor margen.");
+    }
+    if (monthlyFailureRate >= 10) {
+      base.unshift("Reducí fallos: calibración y chequeos antes de lotes grandes.");
+    }
+    if (reporteMensual.topProductos.items[0]) {
+      base.push(`Concentrá esfuerzos en ${reporteMensual.topProductos.items[0].name}.`);
+    }
+    const unique = Array.from(new Set(base.filter(Boolean)));
+    if (unique.length === 0) {
+      unique.push("Mantené el plan actual y revisá el reporte la próxima semana.");
+    }
+    return unique.slice(0, 4);
+  }, [monthlyFailureRate, rentabilidadPositive, reporteMensual]);
+
+  const reportAlerts = useMemo(() => {
+    const alerts: string[] = [];
+    if (!rentabilidadPositive) {
+      alerts.push("Rentabilidad neta negativa.");
+    }
+    if (monthlyFailureRate >= 10) {
+      alerts.push("Tasa de fallas elevada.");
+    }
+    if (reporteMensual.perdidas.total > 0) {
+      alerts.push("Pérdidas por fallas activas.");
+    }
+    if (alerts.length === 0) {
+      alerts.push("Sin alertas críticas este mes.");
+    }
+    return alerts;
+  }, [monthlyFailureRate, rentabilidadPositive, reporteMensual.perdidas.total]);
+  const reportOpportunities = useMemo(() => {
+    const opportunities: string[] = [];
+    const topProduct = reporteMensual.topProductos.items[0];
+    if (topProduct) {
+      opportunities.push(`Escalá ${topProduct.name} si querés maximizar ingresos.`);
+    }
+    if (monthlyFailureRate < 5 && monthlyRecords.length > 0) {
+      opportunities.push("Con fallas bajas, podés aceptar pedidos más complejos.");
+    }
+    if (reportHours < 20 && monthlyRecords.length > 0) {
+      opportunities.push("Hay capacidad disponible para pedidos rápidos o reposiciones.");
+    }
+    if (opportunities.length === 0) {
+      opportunities.push("Explorá nuevas variantes con bajo riesgo para mejorar el margen.");
+    }
+    return opportunities.slice(0, 3);
+  }, [monthlyFailureRate, monthlyRecords.length, reportHours, reporteMensual]);
   const escenariosResumen = useMemo(() => compararEscenariosV1(scenarioInputs), [scenarioInputs]);
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? null,
@@ -2819,7 +2865,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const ingresosChartMax = Math.max(1, ...reporteMensual.ingresos.chart.values);
   const consumoChartMax = Math.max(1, ...reporteMensual.consumoFilamento.chart.values);
   const topProductosChartMax = Math.max(1, ...reporteMensual.topProductos.chart.values);
-  const rentabilidadPositive = reporteMensual.rentabilidadNeta.neto >= 0;
   return (
     <div className="min-h-screen bg-app-gradient relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
