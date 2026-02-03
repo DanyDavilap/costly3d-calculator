@@ -19,6 +19,14 @@ import {
   Save,
   Trash2,
   Lock,
+  Pencil,
+  ArrowRightCircle,
+  Play,
+  CheckCircle,
+  Check,
+  XCircle,
+  Copy,
+  AlertTriangle,
   Download,
   Sparkles,
   Rocket,
@@ -2976,7 +2984,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
                     <span className="text-xl" aria-hidden="true">
-                      ??
+                      <AlertTriangle size={18} />
                     </span>
                     <div>
                       <p className="font-semibold">
@@ -3132,7 +3140,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   <div className="mb-6">
                     <h3 className="text-xl font-semibold text-gray-900">Parámetros base (editables)</h3>
                     <p className="text-sm text-gray-500">
-                      ?? Solo cambia estos valores si varían los costos base. Los productos se cargan en la hoja 'Costos'.
+                      Importante: solo cambia estos valores si varían los costos base. Los productos se cargan en la hoja
+                      'Costos'.
                     </p>
                   </div>
 
@@ -3272,7 +3281,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex items-start gap-3">
                               <span className="text-lg" aria-hidden="true">
-                                {saveBanner.type === "success" ? "?" : "??"}
+                                {saveBanner.type === "success" ? (
+                                  <CheckCircle size={18} />
+                                ) : (
+                                  <AlertTriangle size={18} />
+                                )}
                               </span>
                               <div>
                                 <p className="text-sm font-semibold">{saveBanner.message}</p>
@@ -4146,7 +4159,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Editar producto"
                                       title="Editar producto"
                                     >
-                                      ??
+                                      <Pencil size={18} />
                                     </button>
                                     <button
                                       type="button"
@@ -4158,7 +4171,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Pasar a producción"
                                       title="Pasar a producción"
                                     >
-                                      ?
+                                      <ArrowRightCircle size={18} />
                                     </button>
                                     <button
                                       type="button"
@@ -4187,7 +4200,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                         aria-label="Empezar producción"
                                         title="Empezar producción"
                                       >
-                                        ??
+                                        <Play size={18} />
                                       </button>
                                     ) : (
                                       <>
@@ -4201,7 +4214,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                           aria-label="Finalizar impresión"
                                           title="Finalizar impresión"
                                         >
-                                          ?
+                                          <CheckCircle size={18} />
                                         </button>
                                         <button
                                           type="button"
@@ -4213,7 +4226,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                           aria-label="Registrar impresión fallida"
                                           title="Registrar impresión fallida"
                                         >
-                                          ?
+                                          <XCircle size={18} />
                                         </button>
                                       </>
                                     )}
@@ -4232,7 +4245,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Duplicar impresión"
                                       title="Duplicar impresión"
                                     >
-                                      ??
+                                      <Copy size={18} />
                                     </button>
                                   )}
                               </div>
@@ -5322,8 +5335,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       <ul className="mt-4 space-y-3 text-sm">
                         {planChecklist.map((item) => (
                           <li key={item} className="flex items-start gap-3">
-                            <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold">
-                              ?
+                            <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                              <Check size={12} />
                             </span>
                             <span className="text-gray-700">{item}</span>
                           </li>
@@ -5662,7 +5675,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         </p>
                       </div>
                       <span className="text-xs font-semibold text-[color:var(--color-text-muted)]">
-                        ?? DEV MODE ACTIVADO
+                        <AlertTriangle size={14} className="inline-block mr-1" />
+                        DEV MODE ACTIVADO
                       </span>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -5947,7 +5961,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               <li>• No descuenta filamento todavía</li>
               <li>• No impacta reportes hasta finalizar la impresión</li>
             </ul>
-            <p className="mt-4 text-sm font-semibold text-red-500">?? Esta acción no se puede deshacer.</p>
+            <p className="mt-4 text-sm font-semibold text-red-500">
+              Advertencia: esta acción no se puede deshacer.
+            </p>
             <p className="mt-2 text-sm text-gray-600">¿Deseas continuar?</p>
             <div className="mt-6 flex flex-wrap gap-3">
               <button
