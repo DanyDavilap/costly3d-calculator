@@ -26,6 +26,7 @@ import {
   Factory,
   Palette,
   Settings,
+  Target,
 } from "lucide-react";
 import {
   pricingCalculator,
@@ -65,6 +66,7 @@ import {
 import WikiLayout from "../../wiki/components/WikiLayout";
 
 type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
+type ProjectPieceStatus = "pendiente" | "impresa" | "fallida";
 
 interface FailureDetails {
   date: string;
@@ -121,6 +123,7 @@ interface ProjectPiece {
   estimatedTime: number;
   quantity: number;
   plate: string;
+  status: ProjectPieceStatus;
   amsSlot?: string;
   notes?: string;
 }
@@ -132,6 +135,14 @@ interface Project {
   description?: string;
   createdAt: string;
   pieces: ProjectPiece[];
+}
+
+interface MarketingProfile {
+  businessName: string;
+  focus: string;
+  salesChannel: string;
+  weeklyCapacityHours: string;
+  targetMargin: string;
 }
 
 interface MaterialSpool {
@@ -151,8 +162,11 @@ const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const MATERIAL_STOCK_KEY = "materialStock";
 const PROJECTS_STORAGE_KEY = "projects";
+const MARKETING_PROFILE_KEY = "marketingProfile";
 const FREE_PRODUCT_LIMIT = 3;
 const SHOW_PROFITABILITY_SECTION = true;
+// Comparador desactivado temporalmente: reactivar cuando el producto lo requiera.
+const ENABLE_COMPARATOR = false;
 const MONTH_NAMES = [
   "enero",
   "febrero",
@@ -180,6 +194,21 @@ const BRAND_OPTIONS = [
   "Grilon3",
   "Otro...",
 ];
+const MARKETING_FOCUS_OPTIONS = [
+  "Regalos personalizados",
+  "Decoración y hogar",
+  "Piezas funcionales",
+  "Prototipos y pruebas",
+  "Miniaturas y hobbies",
+  "Otro",
+];
+const MARKETING_CHANNEL_OPTIONS = [
+  "Pedidos directos",
+  "Clientes recurrentes",
+  "Marketplace / tienda online",
+  "B2B / empresas",
+  "Ferias y locales",
+];
 const COLOR_OPTIONS: ColorOption[] = [
   { name: "Negro", hex: "#111827" },
   { name: "Blanco", hex: "#F8FAFC" },
@@ -203,6 +232,14 @@ const DEFAULT_PARAMS: PricingParams = {
   wearPercent: 5,
   operationalPercent: 5,
   profitPercent: 40,
+};
+
+const DEFAULT_MARKETING_PROFILE: MarketingProfile = {
+  businessName: "",
+  focus: "",
+  salesChannel: MARKETING_CHANNEL_OPTIONS[0] ?? "",
+  weeklyCapacityHours: "",
+  targetMargin: "",
 };
 
 const loadStoredParams = (): PricingParams => {
@@ -408,6 +445,10 @@ const loadStoredProjects = (): Project[] => {
               estimatedTime: Number.isFinite(piece.estimatedTime) ? Number(piece.estimatedTime) : 0,
               quantity: Number.isFinite(piece.quantity) ? Number(piece.quantity) : 1,
               plate: String(piece.plate ?? ""),
+              status:
+                piece.status === "impresa" || piece.status === "fallida" || piece.status === "pendiente"
+                  ? piece.status
+                  : "pendiente",
               amsSlot: piece.amsSlot ? String(piece.amsSlot) : "",
               notes: piece.notes ? String(piece.notes) : "",
             }))
@@ -416,6 +457,31 @@ const loadStoredProjects = (): Project[] => {
       .filter((project) => Boolean(project.name));
   } catch (error) {
     return [];
+  }
+};
+
+const loadMarketingProfile = (): MarketingProfile => {
+  if (typeof window === "undefined") return DEFAULT_MARKETING_PROFILE;
+  const saved = localStorage.getItem(MARKETING_PROFILE_KEY);
+  if (!saved) return DEFAULT_MARKETING_PROFILE;
+  try {
+    const parsed = JSON.parse(saved);
+    return {
+      ...DEFAULT_MARKETING_PROFILE,
+      businessName: typeof parsed.businessName === "string" ? parsed.businessName : "",
+      focus: typeof parsed.focus === "string" ? parsed.focus : "",
+      salesChannel: typeof parsed.salesChannel === "string" ? parsed.salesChannel : DEFAULT_MARKETING_PROFILE.salesChannel,
+      weeklyCapacityHours:
+        typeof parsed.weeklyCapacityHours === "string"
+          ? parsed.weeklyCapacityHours
+          : parsed.weeklyCapacityHours?.toString?.() ?? "",
+      targetMargin:
+        typeof parsed.targetMargin === "string"
+          ? parsed.targetMargin
+          : parsed.targetMargin?.toString?.() ?? "",
+    };
+  } catch (error) {
+    return DEFAULT_MARKETING_PROFILE;
   }
 };
 
@@ -485,6 +551,7 @@ type DashboardSection =
   | "stock"
   | "reports"
   | "profitability"
+  | "marketing"
   | "branding"
   | "settings";
 
@@ -509,6 +576,12 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
   const [projects, setProjects] = useState<Project[]>(() => loadStoredProjects());
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [newProjectDraft, setNewProjectDraft] = useState({
+    name: "",
+    category: "General",
+    description: "",
+  });
+  const [marketingProfile, setMarketingProfile] = useState<MarketingProfile>(() => loadMarketingProfile());
   const [params, setParams] = useState<PricingParams>(loadStoredParams);
 
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -601,6 +674,18 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   }, [projects]);
 
   useEffect(() => {
+    localStorage.setItem(MARKETING_PROFILE_KEY, JSON.stringify(marketingProfile));
+  }, [marketingProfile]);
+
+  useEffect(() => {
+    if (ENABLE_COMPARATOR) return;
+    // Evitar acceso directo al comparador mientras esté desactivado.
+    if (activeSection === "scenarios") {
+      setActiveSection("calculator");
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
     if (activeSection !== "projects") return;
     if (activeProjectId || projects.length === 0) return;
     setActiveProjectId(projects[0].id);
@@ -642,19 +727,35 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     return totals;
   };
 
-  const createProject = () => {
+  const createProject = (draft?: { name?: string; category?: string; description?: string }) => {
     const id = `project-${Date.now()}`;
+    const safeName = draft?.name?.trim() || "Nuevo proyecto";
+    const safeCategory = draft?.category?.trim() || "General";
+    const safeDescription = draft?.description?.trim() || "";
     const newProject: Project = {
       id,
-      name: "Nuevo proyecto",
-      category: "General",
-      description: "",
+      name: safeName,
+      category: safeCategory,
+      description: safeDescription,
       createdAt: new Date().toISOString(),
       pieces: [],
     };
     setProjects((prev) => [newProject, ...prev]);
     setActiveProjectId(id);
     setActiveSection("projects");
+  };
+
+  const handleCreateProject = () => {
+    createProject({
+      name: newProjectDraft.name,
+      category: newProjectDraft.category,
+      description: newProjectDraft.description,
+    });
+    setNewProjectDraft((prev) => ({
+      name: "",
+      category: prev.category?.trim() || "General",
+      description: "",
+    }));
   };
 
   const updateProject = (projectId: string, updates: Partial<Project>) => {
@@ -667,13 +768,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const newPiece: ProjectPiece = {
       id: `piece-${Date.now()}`,
       projectId,
-      partName: "Nueva pieza",
+      partName: "",
       color: "",
       materialId: "",
       grams: 0,
       estimatedTime: 0,
       quantity: 1,
       plate: "",
+      status: "pendiente",
       amsSlot: "",
       notes: "",
     };
@@ -1231,6 +1333,322 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             timestamp: 0,
           },
         ];
+
+  const marketingFailureByProduct = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        successes: number;
+        failures: number;
+        failureCost: number;
+        failureGrams: number;
+      }
+    >();
+
+    records.forEach((record) => {
+      const productName = record.productName || record.name || "Producto";
+      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+      const current = map.get(productName) ?? {
+        successes: 0,
+        failures: 0,
+        failureCost: 0,
+        failureGrams: 0,
+      };
+
+      if (record.status === "finalizada_ok") {
+        current.successes += quantity;
+      }
+
+      if (record.status === "finalizada_fallida") {
+        current.failures += quantity;
+        current.failureCost += (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0);
+        current.failureGrams += record.failure?.gramsLost ?? 0;
+      }
+
+      map.set(productName, current);
+    });
+
+    return map;
+  }, [records]);
+
+  const marketingProducts = useMemo(() => {
+    return rentabilidadEntries.map((item) => {
+      const failureStats = marketingFailureByProduct.get(item.nombre) ?? {
+        successes: 0,
+        failures: 0,
+        failureCost: 0,
+        failureGrams: 0,
+      };
+      const attempts = failureStats.successes + failureStats.failures;
+      const failureRate = attempts > 0 ? (failureStats.failures / attempts) * 100 : 0;
+
+      return {
+        key: item.nombre,
+        productName: item.nombre,
+        category: rentabilidadData.categorias.get(item.nombre) ?? "General",
+        revenue: item.ingresoTotal,
+        cost: item.costoTotal,
+        profit: item.gananciaNeta,
+        margin: item.margenReal,
+        attempts,
+        failures: failureStats.failures,
+        failureRate,
+        failureCost: failureStats.failureCost,
+        failureGrams: failureStats.failureGrams,
+      };
+    });
+  }, [marketingFailureByProduct, rentabilidadData.categorias, rentabilidadEntries]);
+
+  const marketingSummary = useMemo(() => {
+    const totals = marketingProducts.reduce(
+      (acc, item) => {
+        acc.attempts += item.attempts;
+        acc.failures += item.failures;
+        acc.failureCost += item.failureCost;
+        acc.failureGrams += item.failureGrams;
+        return acc;
+      },
+      { attempts: 0, failures: 0, failureCost: 0, failureGrams: 0 },
+    );
+    const failureRate = totals.attempts > 0 ? (totals.failures / totals.attempts) * 100 : 0;
+    return { ...totals, failureRate };
+  }, [marketingProducts]);
+
+  const marketingRecommendations = useMemo(() => {
+    const parsedTarget = Number.parseFloat(marketingProfile.targetMargin);
+    const fallbackTarget = averageRentabilidadMargin > 0 ? averageRentabilidadMargin : 20;
+    const targetMargin = Number.isFinite(parsedTarget) ? parsedTarget : fallbackTarget;
+    const normalizedTarget = Math.min(100, Math.max(0, targetMargin));
+
+    const sortedByProfit = [...marketingProducts].sort((a, b) => b.profit - a.profit);
+    const sellCandidates = sortedByProfit.filter((item) => item.profit > 0);
+    const sell = sellCandidates
+      .filter((item) => item.margin >= normalizedTarget * 0.8 && item.failureRate <= 20)
+      .slice(0, 3);
+
+    if (sell.length < 3) {
+      sellCandidates.forEach((item) => {
+        if (sell.length >= 3) return;
+        if (!sell.some((existing) => existing.productName === item.productName)) {
+          sell.push(item);
+        }
+      });
+    }
+
+    const pauseThresholdMargin = Math.min(10, normalizedTarget * 0.6);
+    const pause = [...marketingProducts]
+      .filter(
+        (item) => item.profit <= 0 || item.margin < pauseThresholdMargin || item.failureRate >= 25,
+      )
+      .sort((a, b) => a.profit - b.profit || b.failureRate - a.failureRate)
+      .slice(0, 3);
+
+    const improveTargets = [...marketingProducts]
+      .filter((item) => item.failureRate >= 15 || item.failureCost > 0)
+      .sort((a, b) => b.failureCost - a.failureCost || b.failureRate - a.failureRate)
+      .slice(0, 3);
+
+    return {
+      targetMargin: normalizedTarget,
+      sell,
+      pause,
+      improveTargets,
+    };
+  }, [averageRentabilidadMargin, marketingProducts, marketingProfile.targetMargin]);
+
+  const hasMarketingData = marketingProducts.some((item) => item.attempts > 0 || item.revenue > 0);
+
+  const materialTypeById = useMemo(() => {
+    const map = new Map<string, string>();
+    materialStock.forEach((spool) => {
+      map.set(spool.id, spool.materialType || "");
+    });
+    return map;
+  }, [materialStock]);
+
+  const marketingMaterialVariety = useMemo(() => {
+    const types = new Set<string>();
+    records.forEach((record) => {
+      const material =
+        record.materialType || materialTypeById.get(record.selectedMaterialId ?? "") || "";
+      if (material) {
+        types.add(material);
+      }
+    });
+    return types.size;
+  }, [records, materialTypeById]);
+
+  const planSignals = useMemo(() => {
+    const now = Date.now();
+    const windowMs = 1000 * 60 * 60 * 24 * 30;
+    let recentAttempts = 0;
+    let recentHours = 0;
+
+    records.forEach((record) => {
+      const parsed = parseRecordDate(record.date);
+      if (!parsed) return;
+      if (now - parsed.getTime() > windowMs) return;
+      if (record.status !== "finalizada_ok" && record.status !== "finalizada_fallida") return;
+      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+      recentAttempts += quantity;
+      const minutes = Number.isFinite(record.inputs?.timeMinutes) ? record.inputs.timeMinutes : 0;
+      recentHours += (minutes / 60) * quantity;
+    });
+
+    let demandStatus = "Demanda estable";
+    if (!hasMarketingData) {
+      demandStatus = "Demanda sin datos";
+    } else if (recentAttempts >= 20) {
+      demandStatus = "Alta demanda";
+    } else if (recentAttempts >= 8) {
+      demandStatus = "Demanda estable";
+    } else {
+      demandStatus = "Baja demanda";
+    }
+
+    const capacityTarget = Number.parseFloat(marketingProfile.weeklyCapacityHours);
+    const weeklyCapacity = Number.isFinite(capacityTarget) && capacityTarget > 0 ? capacityTarget : null;
+    const weeklyLoad = recentHours / 4.3;
+    let capacityStatus = "Capacidad sin definir";
+    if (!weeklyCapacity) {
+      capacityStatus = "Capacidad sin definir";
+    } else if (!hasMarketingData) {
+      capacityStatus = "Capacidad sin datos";
+    } else if (weeklyLoad >= weeklyCapacity * 0.9) {
+      capacityStatus = "Capacidad al límite";
+    } else if (weeklyLoad >= weeklyCapacity * 0.6) {
+      capacityStatus = "Capacidad ajustada";
+    } else {
+      capacityStatus = "Capacidad disponible";
+    }
+
+    let marginStatus = "Margen sin datos";
+    if (!hasMarketingData) {
+      marginStatus = "Margen sin datos";
+    } else if (!marketingProfile.targetMargin) {
+      marginStatus = "Margen sin objetivo";
+    } else {
+      const target = marketingRecommendations.targetMargin;
+      const avg = averageRentabilidadMargin;
+      if (avg >= target + 5) {
+        marginStatus = "Por encima del objetivo";
+      } else if (avg >= target - 5) {
+        marginStatus = "Dentro del objetivo";
+      } else {
+        marginStatus = "Por debajo del objetivo";
+      }
+    }
+
+    return { demandStatus, capacityStatus, marginStatus };
+  }, [
+    averageRentabilidadMargin,
+    hasMarketingData,
+    marketingProfile.targetMargin,
+    marketingProfile.weeklyCapacityHours,
+    marketingRecommendations.targetMargin,
+    records,
+  ]);
+
+  const planActions = useMemo(() => {
+    const actions: string[] = [];
+    if (!hasMarketingData) {
+      actions.push("Registrá ventas y fallos para activar recomendaciones personalizadas.");
+      actions.push("Definí un margen objetivo para orientar tus precios.");
+      actions.push("Cargá tu capacidad semanal para planificar entregas.");
+      return actions;
+    }
+
+    if (planSignals.demandStatus === "Baja demanda") {
+      actions.push("Priorizar productos de baja complejidad para mejorar rotación.");
+    } else if (planSignals.demandStatus === "Alta demanda") {
+      actions.push("Concentrar la producción en los productos más pedidos.");
+    } else {
+      actions.push("Sostener un mix equilibrado de productos con salida constante.");
+    }
+
+    if (marketingRecommendations.sell[0]) {
+      actions.push(`Promover ${marketingRecommendations.sell[0].productName} esta semana.`);
+    }
+
+    if (planSignals.capacityStatus === "Capacidad al límite") {
+      actions.push("Evitar pedidos multiparte grandes y cerrar fechas de entrega realistas.");
+    } else if (planSignals.capacityStatus === "Capacidad disponible") {
+      actions.push("Abrir ventanas de pedidos cortos para llenar capacidad libre.");
+    }
+
+    if (marketingRecommendations.pause[0]) {
+      actions.push(`Pausar temporalmente ${marketingRecommendations.pause[0].productName}.`);
+    }
+
+    if (marketingRecommendations.improveTargets[0]) {
+      actions.push(`Simplificar la producción de ${marketingRecommendations.improveTargets[0].productName}.`);
+    }
+
+    return actions.slice(0, 5);
+  }, [hasMarketingData, marketingRecommendations, planSignals]);
+
+  const planChecklist = useMemo(() => {
+    const items: string[] = [];
+    if (!hasMarketingData) {
+      items.push("Definir margen objetivo y capacidad semanal.");
+      items.push("Registrar al menos 3 ventas reales.");
+      items.push("Documentar fallos para ajustar procesos.");
+      return items;
+    }
+
+    if (marketingRecommendations.pause.length > 0) {
+      items.push("Pausar productos de bajo margen.");
+    }
+    if (marketingRecommendations.sell.length > 0) {
+      items.push("Enfocar la producción en 1 o 2 productos principales.");
+    }
+    if (marketingSummary.failureRate >= 12) {
+      items.push("Reservar capacidad para fallos y reimpresiones.");
+    }
+    if (marketingMaterialVariety > 1) {
+      items.push("Agrupar impresiones por material y color.");
+    }
+    if (planSignals.capacityStatus === "Capacidad al límite") {
+      items.push("Ordenar entregas por prioridad y comunicar tiempos realistas.");
+    }
+    if (planSignals.demandStatus === "Baja demanda") {
+      items.push("Revisar precios de productos rápidos para mejorar rotación.");
+    }
+
+    if (items.length === 0) {
+      items.push("Mantener el foco en entregas actuales y revisar el plan cada semana.");
+    }
+
+    return items.slice(0, 5);
+  }, [
+    hasMarketingData,
+    marketingMaterialVariety,
+    marketingRecommendations.pause.length,
+    marketingRecommendations.sell.length,
+    marketingSummary.failureRate,
+    planSignals.capacityStatus,
+    planSignals.demandStatus,
+  ]);
+
+  const planAvoid = useMemo(() => {
+    const items: string[] = [];
+    if (!hasMarketingData) {
+      return items;
+    }
+    if (planSignals.capacityStatus === "Capacidad al límite") {
+      items.push("Pedidos multiparte grandes.");
+    }
+    if (marketingSummary.failureRate >= 15) {
+      items.push("Impresiones con tolerancias críticas sin test previo.");
+    }
+    if (planSignals.demandStatus === "Baja demanda") {
+      items.push("Nuevas líneas complejas con baja rotación.");
+    }
+    if (items.length === 0 && planSignals.demandStatus === "Alta demanda") {
+      items.push("Cambios drásticos de catálogo esta semana.");
+    }
+    return items;
+  }, [hasMarketingData, marketingSummary.failureRate, planSignals.capacityStatus, planSignals.demandStatus]);
 
   const formatPercent = (value: number) => (Number.isFinite(value) ? `${value.toFixed(1)}%` : "0%");
 
@@ -1872,6 +2290,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }));
   };
 
+  const handleMarketingProfileChange = <K extends keyof MarketingProfile>(key: K, value: string) => {
+    setMarketingProfile((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
   const openConfirmModal = (record: HistoryRecord) => {
     setIsFailureModalOpen(false);
     setStockModal({ open: false, available: 0, required: 0, recordId: null, selectedMaterialId: "" });
@@ -2432,38 +2857,72 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
         <div className="flex gap-6">
           <aside className="w-56 shrink-0">
-            <div className="bg-white rounded-2xl shadow-lg p-3 space-y-2">
+            <div className="bg-white rounded-2xl shadow-lg p-3 space-y-4">
               {(
                 [
-                  { id: "stock", label: "Stock", icon: Package },
-                  { id: "calculator", label: "Calculadora", icon: Calculator },
-                  { id: "quotations", label: "Cotizaciones", icon: FileText },
-                  { id: "production", label: "Producción", icon: Factory },
-                  { id: "projects", label: "Proyectos", icon: FolderKanban },
-                  { id: "scenarios", label: "Comparador", icon: BarChart3 },
-                  { id: "wiki", label: "Wiki", icon: BookOpen },
-                  { id: "reports", label: "Reportes", icon: BarChart3 },
-                  { id: "profitability", label: "Rentabilidad", icon: TrendingUp },
-                  { id: "branding", label: "Branding", icon: Palette },
-                  { id: "settings", label: "Configuración", icon: Settings },
+                  {
+                    title: "Operativo",
+                    items: [
+                      { id: "stock", label: "Stock", icon: Package },
+                      { id: "calculator", label: "Costos", icon: Calculator },
+                      { id: "quotations", label: "Cotizaciones", icon: FileText },
+                      { id: "production", label: "Producción", icon: Factory },
+                    ],
+                  },
+                  {
+                    title: "Métricas",
+                    items: [
+                      { id: "reports", label: "Reportes", icon: BarChart3 },
+                      { id: "profitability", label: "Rentabilidad", icon: TrendingUp },
+                      ...(ENABLE_COMPARATOR
+                        ? [{ id: "scenarios", label: "Comparador", icon: BarChart3 }]
+                        : []),
+                    ],
+                  },
+                  {
+                    title: "Organización",
+                    items: [
+                      { id: "projects", label: "Proyectos", icon: FolderKanban },
+                      { id: "marketing", label: "Plan de acción", icon: Target },
+                    ],
+                  },
+                  {
+                    title: "Extras",
+                    items: [
+                      { id: "branding", label: "Branding", icon: Palette },
+                      { id: "wiki", label: "Wiki", icon: BookOpen },
+                      { id: "settings", label: "Configuración", icon: Settings },
+                    ],
+                  },
                 ] as const
-              ).map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSection === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
-                      isActive ? "bg-blue-500 text-white shadow-md" : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Icon size={18} />
-                    {item.label}
-                  </button>
-                );
-              })}
+              ).map((group) => (
+                <div key={group.title} className="space-y-2">
+                  <p className="px-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    {group.title}
+                  </p>
+                  <div className="space-y-1">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = activeSection === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setActiveSection(item.id)}
+                          className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
+                            isActive
+                              ? "bg-blue-500 text-white shadow-md"
+                              : "text-gray-600 hover:bg-gray-100"
+                          }`}
+                        >
+                          <Icon size={18} />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </aside>
           <main className="flex-1" data-section={activeSection}>
@@ -3627,7 +4086,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           )}
         </AnimatePresence>
 
-        {activeSection === "scenarios" && (
+        {ENABLE_COMPARATOR && activeSection === "scenarios" && (
           <section className="max-w-6xl mx-auto mt-10">
             <div className="bg-white rounded-3xl shadow-2xl p-8">
               <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -3819,32 +4278,84 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           </section>
         )}
 
-        {activeSection === "projects" && (
-          <section className="max-w-6xl mx-auto mt-10">
+                {activeSection === "projects" && (
+          <section className="max-w-7xl mx-auto mt-10">
             <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
               <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">Proyectos</h2>
                   <p className="text-sm text-gray-600">
-                    Gestioná impresiones multiparte como un solo proyecto.
+                    Gestioná impresiones multiparte como una carpeta de producción.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={createProject}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
-                  disabled={!isProEnabled}
-                >
-                  Nuevo proyecto
-                </button>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">Nueva carpeta de producción</p>
+                      <p className="text-xs text-gray-500">Solo nombre, categoría y descripción.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid md:grid-cols-[1.2fr_0.9fr_1.6fr_auto] gap-3 items-end">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre del proyecto</label>
+                      <input
+                        value={newProjectDraft.name}
+                        onChange={(event) =>
+                          setNewProjectDraft((prev) => ({ ...prev, name: event.target.value }))
+                        }
+                        placeholder="Ej: Pedido abril"
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Categoría</label>
+                      <input
+                        value={newProjectDraft.category}
+                        onChange={(event) =>
+                          setNewProjectDraft((prev) => ({ ...prev, category: event.target.value }))
+                        }
+                        placeholder="General"
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        Descripción (opcional)
+                      </label>
+                      <input
+                        value={newProjectDraft.description}
+                        onChange={(event) =>
+                          setNewProjectDraft((prev) => ({ ...prev, description: event.target.value }))
+                        }
+                        placeholder="Ej: Entrega multiparte para cliente X"
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCreateProject}
+                      className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all font-semibold"
+                      disabled={!isProEnabled}
+                    >
+                      Crear proyecto
+                    </button>
+                  </div>
+                </div>
+
                 <div className="rounded-2xl border border-gray-200 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
-                    Listado de proyectos
-                  </p>
-                  <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Carpetas de producción
+                      </p>
+                      <p className="text-xs text-gray-500">Seleccioná una carpeta para editar.</p>
+                    </div>
+                    <span className="text-xs text-gray-500">{projects.length} proyectos</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {projects.length === 0 && (
                       <p className="text-sm text-gray-500">No hay proyectos aún.</p>
                     )}
@@ -3856,12 +4367,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           key={project.id}
                           type="button"
                           onClick={() => setActiveProjectId(project.id)}
-                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                          className={`min-w-[200px] flex-1 rounded-xl border px-3 py-3 text-left transition ${
                             isActive ? "border-blue-200 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
                           }`}
                         >
-                          <p className="text-sm font-semibold text-gray-800">{project.name}</p>
-                          <p className="text-xs text-gray-500">{project.category || "General"}</p>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">{project.name}</p>
+                              <p className="text-xs text-gray-500">{project.category || "General"}</p>
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                Activo
+                              </span>
+                            )}
+                          </div>
                           <div className="mt-2 text-xs text-gray-500 flex flex-wrap gap-2">
                             <span>{totals.pieces} piezas</span>
                             <span>• {totals.grams.toFixed(0)} g</span>
@@ -3873,195 +4393,261 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-gray-200 p-5">
+                <div className="rounded-2xl border border-gray-200 p-5 bg-slate-50">
                   {!activeProject ? (
                     <p className="text-sm text-gray-500">Seleccioná un proyecto para ver los detalles.</p>
                   ) : (
                     <>
-                      <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
-                        <div className="flex-1 min-w-[220px]">
-                          <label className="block text-xs font-semibold text-gray-600 mb-2">
-                            Nombre del proyecto
-                          </label>
-                          <input
-                            value={activeProject.name}
-                            onChange={(event) => updateProject(activeProject.id, { name: event.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                          />
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="flex-1 grid lg:grid-cols-[1.1fr_0.8fr_1.5fr] gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                              Nombre del proyecto
+                            </label>
+                            <input
+                              value={activeProject.name}
+                              onChange={(event) => updateProject(activeProject.id, { name: event.target.value })}
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">Categoría</label>
+                            <input
+                              value={activeProject.category}
+                              onChange={(event) =>
+                                updateProject(activeProject.id, { category: event.target.value })
+                              }
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                              Descripción (opcional)
+                            </label>
+                            <input
+                              value={activeProject.description ?? ""}
+                              onChange={(event) =>
+                                updateProject(activeProject.id, { description: event.target.value })
+                              }
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
+                            />
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-[180px]">
-                          <label className="block text-xs font-semibold text-gray-600 mb-2">Categoría</label>
-                          <input
-                            value={activeProject.category}
-                            onChange={(event) => updateProject(activeProject.id, { category: event.target.value })}
-                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                          />
+                        <div className="rounded-2xl border border-gray-200 bg-white p-4 min-w-[220px]">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">Totales del proyecto</p>
+                          {(() => {
+                            const totals = calculateProjectTotals(activeProject);
+                            return (
+                              <div className="mt-3 grid gap-2 text-sm text-gray-700">
+                                <div className="flex items-center justify-between">
+                                  <span>Total de piezas</span>
+                                  <span className="font-semibold">{totals.pieces}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Total de gramos</span>
+                                  <span className="font-semibold">{totals.grams.toFixed(0)} g</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Total de horas</span>
+                                  <span className="font-semibold">{totals.time.toFixed(1)} h</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 
-                      <div className="mb-4">
-                        <label className="block text-xs font-semibold text-gray-600 mb-2">
-                          Descripción (opcional)
-                        </label>
-                        <textarea
-                          rows={3}
-                          value={activeProject.description ?? ""}
-                          onChange={(event) => updateProject(activeProject.id, { description: event.target.value })}
-                          className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                        />
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                        <h3 className="text-sm font-semibold text-gray-700">Piezas</h3>
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-700">Tabla principal</h3>
+                          <p className="text-xs text-gray-500">Editá directamente como una planilla.</p>
+                        </div>
                         <button
                           type="button"
                           onClick={() => addProjectPiece(activeProject.id)}
                           className="text-blue-600 font-semibold text-sm hover:text-blue-700"
                         >
-                          Agregar pieza
+                          Agregar fila
                         </button>
                       </div>
 
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                      <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-2 overflow-x-auto lg:overflow-x-visible">
+                        <table className="w-full table-fixed text-sm">
+                          <colgroup>
+                            <col style={{ width: "18%" }} />
+                            <col style={{ width: "8%" }} />
+                            <col style={{ width: "14%" }} />
+                            <col style={{ width: "6%" }} />
+                            <col style={{ width: "8%" }} />
+                            <col style={{ width: "8%" }} />
+                            <col style={{ width: "8%" }} />
+                            <col style={{ width: "8%" }} />
+                            <col style={{ width: "6%" }} />
+                            <col style={{ width: "10%" }} />
+                            <col style={{ width: "6%" }} />
+                          </colgroup>
                           <thead>
                             <tr className="border-b border-gray-200 text-left">
-                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Parte</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Nombre de la pieza</th>
                               <th className="py-2 px-2 text-xs font-semibold text-gray-600">Color</th>
                               <th className="py-2 px-2 text-xs font-semibold text-gray-600">Material</th>
                               <th className="py-2 px-2 text-xs font-semibold text-gray-600">Cantidad</th>
-                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Gramos</th>
-                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Tiempo (h)</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Gramos por unidad</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600 text-right">
+                                Gramos totales
+                              </th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Horas por unidad</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600 text-right">
+                                Horas totales
+                              </th>
                               <th className="py-2 px-2 text-xs font-semibold text-gray-600">Placa</th>
-                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">AMS</th>
+                              <th className="py-2 px-2 text-xs font-semibold text-gray-600">Estado</th>
                               <th className="py-2 px-2 text-xs font-semibold text-gray-600 text-right">Acciones</th>
                             </tr>
                           </thead>
                           <tbody>
                             {activeProject.pieces.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="py-4 text-sm text-gray-500">
-                                  Todavía no hay piezas cargadas.
+                                <td colSpan={11} className="py-4 text-sm text-gray-500">
+                                  Agregá filas para construir tu plan de producción.
                                 </td>
                               </tr>
                             ) : (
-                              activeProject.pieces.map((piece) => (
-                                <tr key={piece.id} className="border-b border-gray-100">
-                                  <td className="py-2 px-2">
-                                    <input
-                                      value={piece.partName}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, { partName: event.target.value })
-                                      }
-                                      className="w-32 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      value={piece.color}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, { color: event.target.value })
-                                      }
-                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <select
-                                      value={piece.materialId}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, { materialId: event.target.value })
-                                      }
-                                      className="w-36 rounded-lg border border-gray-200 px-2 py-1 text-xs bg-white"
-                                    >
-                                      <option value="">Seleccionar</option>
-                                      {materialStock.map((spool) => (
-                                        <option key={spool.id} value={spool.id}>
-                                          {spool.displayName}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      type="number"
-                                      value={piece.quantity}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, {
-                                          quantity: Number(event.target.value),
-                                        })
-                                      }
-                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      type="number"
-                                      value={piece.grams}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, {
-                                          grams: Number(event.target.value),
-                                        })
-                                      }
-                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      type="number"
-                                      value={piece.estimatedTime}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, {
-                                          estimatedTime: Number(event.target.value),
-                                        })
-                                      }
-                                      className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      value={piece.plate}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, { plate: event.target.value })
-                                      }
-                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2">
-                                    <input
-                                      value={piece.amsSlot ?? ""}
-                                      onChange={(event) =>
-                                        updateProjectPiece(activeProject.id, piece.id, { amsSlot: event.target.value })
-                                      }
-                                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2 text-right">
-                                    <button
-                                      type="button"
-                                      onClick={() => removeProjectPiece(activeProject.id, piece.id)}
-                                      className="text-red-500 hover:text-red-600 text-xs font-semibold"
-                                    >
-                                      Quitar
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))
+                              activeProject.pieces.map((piece) => {
+                                const quantity = Number.isFinite(piece.quantity) ? piece.quantity : 0;
+                                const gramsUnit = Number.isFinite(piece.grams) ? piece.grams : 0;
+                                const hoursUnit = Number.isFinite(piece.estimatedTime) ? piece.estimatedTime : 0;
+                                const gramsTotal = gramsUnit * quantity;
+                                const hoursTotal = hoursUnit * quantity;
+                                return (
+                                  <tr key={piece.id} className="border-b border-gray-100">
+                                    <td className="py-2 px-2">
+                                      <input
+                                        value={piece.partName}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            partName: event.target.value,
+                                          })
+                                        }
+                                        placeholder="Pieza"
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <input
+                                        value={piece.color}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, { color: event.target.value })
+                                        }
+                                        placeholder="Color"
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <select
+                                        value={piece.materialId}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            materialId: event.target.value,
+                                          })
+                                        }
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs bg-white"
+                                      >
+                                        <option value="">Seleccionar</option>
+                                        {materialStock.map((spool) => (
+                                          <option key={spool.id} value={spool.id}>
+                                            {spool.displayName}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={piece.quantity}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            quantity: Number(event.target.value),
+                                          })
+                                        }
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={piece.grams}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            grams: Number(event.target.value),
+                                          })
+                                        }
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2 text-right text-gray-700 font-semibold whitespace-nowrap">
+                                      {gramsTotal.toFixed(1)} g
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={piece.estimatedTime}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            estimatedTime: Number(event.target.value),
+                                          })
+                                        }
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2 text-right text-gray-700 font-semibold whitespace-nowrap">
+                                      {hoursTotal.toFixed(1)} h
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <input
+                                        value={piece.plate}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, { plate: event.target.value })
+                                        }
+                                        placeholder="Placa"
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                      />
+                                    </td>
+                                    <td className="py-2 px-2">
+                                      <select
+                                        value={piece.status}
+                                        onChange={(event) =>
+                                          updateProjectPiece(activeProject.id, piece.id, {
+                                            status: event.target.value as ProjectPieceStatus,
+                                          })
+                                        }
+                                        className="w-full min-w-0 rounded-lg border border-gray-200 px-2 py-1 text-xs bg-white"
+                                      >
+                                        <option value="pendiente">Pendiente</option>
+                                        <option value="impresa">Impresa</option>
+                                        <option value="fallida">Fallida</option>
+                                      </select>
+                                    </td>
+                                    <td className="py-2 px-2 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => removeProjectPiece(activeProject.id, piece.id)}
+                                        className="text-red-500 hover:text-red-600 text-xs font-semibold"
+                                      >
+                                        Quitar
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                        {(() => {
-                          const totals = calculateProjectTotals(activeProject);
-                          return (
-                            <div className="flex flex-wrap items-center gap-4">
-                              <span>Totales: {totals.pieces} piezas</span>
-                              <span>{totals.grams.toFixed(0)} g</span>
-                              <span>{totals.time.toFixed(1)} h</span>
-                            </div>
-                          );
-                        })()}
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-3">
@@ -4502,6 +5088,206 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
           </section>
         )}
 
+        {activeSection === "marketing" && (
+          <section className="max-w-5xl mx-auto mt-10">
+            <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Plan de acción</h2>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Decisiones prácticas para organizar tu producción y vender mejor.
+                  </p>
+                </div>
+                <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
+                  PRO
+                </span>
+              </div>
+
+              <div className={`mt-6 ${isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
+                <div className="grid lg:grid-cols-[1.4fr_0.8fr] gap-6">
+                  <div className="space-y-6">
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-700">Situación actual</h3>
+                        <span className="text-xs text-gray-500">Estado operativo</span>
+                      </div>
+                      <div className="mt-4 grid md:grid-cols-3 gap-3">
+                        <div className="rounded-xl bg-white border border-gray-200 p-3">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">Demanda</p>
+                          <p className="mt-2 text-sm font-semibold text-gray-800">
+                            {planSignals.demandStatus}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-gray-200 p-3">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">Capacidad</p>
+                          <p className="mt-2 text-sm font-semibold text-gray-800">
+                            {planSignals.capacityStatus}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-gray-200 p-3">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">Margen</p>
+                          <p className="mt-2 text-sm font-semibold text-gray-800">
+                            {planSignals.marginStatus}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs text-gray-500">
+                        Estados estimados para tomar decisiones rápidas sin perder foco.
+                      </p>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-700">Qué hacer ahora</h3>
+                        <span className="text-xs text-gray-500">Prioridades</span>
+                      </div>
+                      <ul className="mt-4 space-y-2 text-sm">
+                        {planActions.map((action) => (
+                          <li key={action} className="flex items-start gap-2">
+                            <span className="mt-2 h-2 w-2 rounded-full bg-blue-500" aria-hidden="true" />
+                            <span className="text-gray-700">{action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-700">Decisiones sugeridas</h3>
+                        <span className="text-xs text-gray-500">Checklist</span>
+                      </div>
+                      <ul className="mt-4 space-y-3 text-sm">
+                        {planChecklist.map((item) => (
+                          <li key={item} className="flex items-start gap-3">
+                            <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold">
+                              ✓
+                            </span>
+                            <span className="text-gray-700">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-700">Perfil de negocio</h3>
+                        <span className="text-xs text-gray-500">Referencia</span>
+                      </div>
+                      <div className="mt-4 grid gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre de negocio</label>
+                          <input
+                            type="text"
+                            value={marketingProfile.businessName}
+                            onChange={(event) => handleMarketingProfileChange("businessName", event.target.value)}
+                            placeholder="Ej: Taller 3D Norte"
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-2">Enfoque principal</label>
+                          <select
+                            value={marketingProfile.focus}
+                            onChange={(event) => handleMarketingProfileChange("focus", event.target.value)}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                          >
+                            <option value="">Seleccionar enfoque</option>
+                            {MARKETING_FOCUS_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-2">Canal principal</label>
+                          <select
+                            value={marketingProfile.salesChannel}
+                            onChange={(event) => handleMarketingProfileChange("salesChannel", event.target.value)}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
+                          >
+                            {MARKETING_CHANNEL_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">
+                              Capacidad semanal
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={marketingProfile.weeklyCapacityHours}
+                              onChange={(event) => handleMarketingProfileChange("weeklyCapacityHours", event.target.value)}
+                              placeholder="Horas"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-2">Margen objetivo</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={marketingProfile.targetMargin}
+                              onChange={(event) => handleMarketingProfileChange("targetMargin", event.target.value)}
+                              placeholder="%"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-xs text-gray-500">
+                        Se usa solo para ajustar las recomendaciones del plan.
+                      </p>
+                    </div>
+
+                    {planAvoid.length > 0 && (
+                      <div className="bg-white rounded-2xl border border-amber-200 p-5">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-amber-900">En qué NO enfocarte ahora</h3>
+                          <span className="text-xs text-amber-700">Reducir ruido</span>
+                        </div>
+                        <ul className="mt-4 space-y-2 text-sm text-amber-800">
+                          {planAvoid.map((item) => (
+                            <li key={item} className="flex items-start gap-2">
+                              <span className="mt-2 h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {!isProEnabled && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                  <div className="text-center px-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Desbloqueá Plan de acción PRO para tomar decisiones claras y accionables.
+                    </p>
+                    <button
+                      type="button"
+                      className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                      onClick={() => handleOpenProModal("cta")}
+                    >
+                      Acceso anticipado PRO
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {activeSection === "branding" && (
           <section className="max-w-5xl mx-auto mt-10">
             <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
@@ -4889,12 +5675,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     bullets: ["Mantenimiento y desgaste", "Tiempo improductivo y costos fijos"],
                     status: "En desarrollo",
                   },
-                  {
-                    title: "Comparador de escenarios",
-                    description: "Compará precios y márgenes antes de decidir.",
-                    bullets: ["Variar material, tiempo y margen", "Elegí la opción más rentable"],
-                    status: "En desarrollo",
-                  },
+                  ...(ENABLE_COMPARATOR
+                    ? [
+                        {
+                          title: "Comparador de escenarios",
+                          description: "Compará precios y márgenes antes de decidir.",
+                          bullets: ["Variar material, tiempo y margen", "Elegí la opción más rentable"],
+                          status: "En desarrollo",
+                        },
+                      ]
+                    : []),
                 ].map((item) => (
                   <div
                     key={item.title}
@@ -5225,3 +6015,5 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 }
 
 export default Dashboard;
+
+
