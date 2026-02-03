@@ -2976,7 +2976,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
                     <span className="text-xl" aria-hidden="true">
-                      ⚠️
+                      ??
                     </span>
                     <div>
                       <p className="font-semibold">
@@ -3272,7 +3272,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex items-start gap-3">
                               <span className="text-lg" aria-hidden="true">
-                                {saveBanner.type === "success" ? "✅" : "⚠️"}
+                                {saveBanner.type === "success" ? "?" : "??"}
                               </span>
                               <div>
                                 <p className="text-sm font-semibold">{saveBanner.message}</p>
@@ -3467,377 +3467,495 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               className="max-w-7xl mx-auto"
             >
               {activeSection === "reports" && (
-                <div className="grid md:grid-cols-4 gap-4 mb-6">
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white"
-                  >
-                  <div className="flex items-center justify-between mb-2">
-                    <Box size={32} />
-                    <span className="text-3xl font-bold">{totalToys}</span>
-                  </div>
-                  <p className="text-sm font-medium opacity-90">Productos registrados</p>
-                </motion.div>
-
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-6 text-white"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Clock size={32} />
-                    <span className="text-3xl font-bold">{reportHours.toFixed(0)}</span>
-                  </div>
-                  <p className="text-sm font-medium opacity-90">Horas de impresión</p>
-                </motion.div>
-
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-2xl shadow-lg p-6 text-white"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <TrendingUp size={32} />
-                    <span className="text-2xl font-bold">{formatCurrency(totalProfit)}</span>
-                  </div>
-                  <p className="text-sm font-medium opacity-90">Ganancia total</p>
-                </motion.div>
-
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl shadow-lg p-6 text-white"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Sparkles size={32} />
-                    <span className="text-sm font-bold">{mostProfitableReport?.name || "N/A"}</span>
-                  </div>
-                  <p className="text-sm font-medium opacity-90">Más rentable</p>
-                </motion.div>
-              </div>
-              )}
-
-              {activeSection === "reports" && (
-                <div className="grid md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-red-50 rounded-2xl border border-red-100 p-4 text-sm text-red-700">
-                    <p className="text-xs uppercase tracking-wide text-red-500">Pérdidas por fallas</p>
-                    <p className="mt-2 text-lg font-semibold">{formatCurrency(monthlyFailureLosses)}</p>
-                  </div>
-                  <div className="bg-amber-50 rounded-2xl border border-amber-100 p-4 text-sm text-amber-700">
-                    <p className="text-xs uppercase tracking-wide text-amber-600">Gramos desperdiciados</p>
-                    <p className="mt-2 text-lg font-semibold">{monthlyFailureGrams.toFixed(0)} g</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Tasa de fallas</p>
-                    <p className="mt-2 text-lg font-semibold">{monthlyFailureRate.toFixed(1)}%</p>
-                  </div>
-                </div>
-              )}
-
-              {activeSection === "reports" && categoryData.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-3xl shadow-2xl p-8 mb-6"
-                >
-                  <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                    <BarChart3 size={28} className="text-blue-500" />
-                    Ganancia por Categoría
-                  </h2>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <RechartsBarChart data={categoryData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="category" stroke="#6b7280" />
-                      <YAxis stroke="#6b7280" />
-                      <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
-                        contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 6px rgba(0,0,0,0.1)" }}
-                      />
-                      <Bar dataKey="profit" radius={[8, 8, 0, 0]}>
-                        {categoryData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </RechartsBarChart>
-                  </ResponsiveContainer>
-                </motion.div>
-              )}
-
-              {activeSection === "reports" && (
-                <div
-                  id="proMonthlyReport"
-                  ref={reportCardsRef}
-                  className="bg-white rounded-3xl shadow-2xl p-8 mb-6 relative"
-                >
-                  {BRANDING_ACTIVO && (
-                    <div
-                      className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b"
-                      style={{ borderColor: brand.primaryColor || "#E5E7EB" }}
-                    >
-                      <div className="flex items-center gap-3">
-                        {brand.logoDataUrl ? (
-                          <img
-                            src={brand.logoDataUrl}
-                            alt={brand.name || "Logo"}
-                            className="h-10 w-10 rounded-lg object-contain bg-white"
-                          />
-                        ) : (
-                          <div
-                            className="h-10 w-10 rounded-lg flex items-center justify-center text-white font-bold"
-                            style={{ backgroundColor: brand.primaryColor || "#5b9dff" }}
-                          >
-                            {brand.name?.trim().charAt(0) || "C"}
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-gray-400">Marca</p>
-                          <p className="text-lg font-semibold text-gray-800">{brand.name || "Costly3D"}</p>
-                        </div>
+                <div id="proMonthlyReport" ref={reportCardsRef} className="mb-6 space-y-6">
+                  <div className="bg-white rounded-3xl shadow-2xl p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Reportes</h2>
+                        <p className="text-sm text-gray-600">
+                          Resumen ejecutivo del mes para decidir rápido qué ajustar.
+                        </p>
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                          Reportes no es para registrar, es para decidir.
+                        </p>
                       </div>
                       <div className="text-right text-xs text-gray-500">
-                        <p className="uppercase tracking-wide">Reporte mensual</p>
+                        <p className="uppercase tracking-wide">Período</p>
                         <p className="font-semibold text-gray-700">
                           {reportMonthLabel} {reportYear}
                         </p>
                       </div>
                     </div>
-                  )}
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-800">Reporte mensual de rentabilidad</h2>
-                      <p className="text-sm text-gray-600">
-                        Metrica profesional del mes con ingresos, fallos y consumo de filamento.
-                      </p>
-                    </div>
-                    <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
-                      PRO
-                    </span>
                   </div>
 
-                  <div
-                    className={`mt-6 grid md:grid-cols-3 gap-4 ${
-                      isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"
-                    }`}
-                  >
-                    <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">💰</span>
-                        <span className="text-2xl font-bold">
-                          {isProEnabled ? formatCurrency(reporteMensual.ingresos.total) : "—"}
-                        </span>
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-lg font-semibold text-gray-800">Resumen ejecutivo</h3>
+                      <span className="text-xs uppercase tracking-wide text-gray-400">Qué pasó</span>
+                    </div>
+                    <div className="grid lg:grid-cols-3 gap-4">
+                      <div
+                        className={`rounded-2xl shadow-lg p-5 text-white ${
+                          rentabilidadPositive
+                            ? "bg-gradient-to-br from-emerald-500 to-emerald-600"
+                            : "bg-gradient-to-br from-red-500 to-red-600"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <TrendingUp size={28} />
+                          <span className="text-xs font-semibold uppercase tracking-wide">
+                            {rentabilidadPositive ? "Positiva" : "Negativa"}
+                          </span>
+                        </div>
+                        <p className="text-sm opacity-90">Rentabilidad neta</p>
+                        <p className="mt-2 text-2xl font-bold">
+                          {formatCurrency(reporteMensual.rentabilidadNeta.neto)}
+                        </p>
+                        <p className="mt-1 text-xs opacity-90">
+                          Margen {formatPercent(reporteMensual.rentabilidadNeta.margenPct)}
+                        </p>
                       </div>
-                      <p className="mt-1 text-sm opacity-90">Ingresos reales</p>
-                      <div className="mt-3 space-y-2 text-xs">
-                        {reporteMensual.ingresos.productos.length === 0 ? (
-                          <p className="opacity-80">Sin ventas registradas este mes.</p>
-                        ) : (
-                          reporteMensual.ingresos.productos.slice(0, 3).map((item) => (
-                            <div key={item.name} className="space-y-1">
-                              <div className="flex items-center justify-between">
+
+                      <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-5 text-white">
+                        <div className="flex items-center justify-between mb-2">
+                          <DollarSign size={28} />
+                          <span className="text-xs font-semibold uppercase tracking-wide">Ingresos</span>
+                        </div>
+                        <p className="text-sm opacity-90">Ingresos reales</p>
+                        <p className="mt-2 text-2xl font-bold">
+                          {formatCurrency(reporteMensual.ingresos.total)}
+                        </p>
+                        <p className="mt-1 text-xs opacity-90">
+                          {reporteMensual.ingresos.productos.length === 0
+                            ? "Sin ventas registradas"
+                            : `${reporteMensual.ingresos.productos.length} productos con ventas`}
+                        </p>
+                      </div>
+
+                      <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg p-5 text-white">
+                        <div className="flex items-center justify-between mb-2">
+                          <Trash2 size={28} />
+                          <span className="text-xs font-semibold uppercase tracking-wide">Fallas</span>
+                        </div>
+                        <p className="text-sm opacity-90">Pérdidas por fallas</p>
+                        <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyFailureLosses)}</p>
+                        <p className="mt-1 text-xs opacity-90">
+                          {monthlyFailureGrams.toFixed(0)} g desperdiciados
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-3xl shadow-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-800">Explicación operativa</h3>
+                      <span className="text-xs uppercase tracking-wide text-gray-400">Por qué pasó</span>
+                    </div>
+                    <div className="grid lg:grid-cols-4 gap-4">
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Consumo de filamento</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-800">
+                          {reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {reporteMensual.consumoFilamento.porTipo[0]?.material
+                            ? `Material dominante: ${reporteMensual.consumoFilamento.porTipo[0].material}`
+                            : "Sin consumo registrado"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Horas de impresión</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-800">{reportHours.toFixed(1)} h</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {monthlyRecords.length === 0 ? "Sin impresiones registradas" : "Tiempo total del mes"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Tasa de fallas</p>
+                        <p className="mt-2 text-lg font-semibold text-slate-800">{formatPercent(monthlyFailureRate)}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {monthlyFailureRate >= 10 ? "Necesita atención" : "Dentro de lo esperado"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-500">Top productos</p>
+                        <div className="mt-2 space-y-2 text-sm text-slate-700">
+                          {reporteMensual.topProductos.items.length === 0 ? (
+                            <p className="text-xs text-slate-500">Sin productos destacados</p>
+                          ) : (
+                            reporteMensual.topProductos.items.slice(0, 3).map((item) => (
+                              <div key={item.name} className="flex items-center justify-between">
                                 <span className="truncate">{item.name}</span>
-                                <span className="font-semibold">{formatCurrency(item.subtotal)}</span>
+                                <span className="text-xs text-slate-500">{item.unidades} uds</span>
                               </div>
-                              <p className="text-[11px] opacity-80">
-                                {item.quantity} x {formatCurrency(item.unitPrice)}
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-3xl shadow-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-800">Dirección futura</h3>
+                      <span className="text-xs uppercase tracking-wide text-gray-400">Qué hacer ahora</span>
+                    </div>
+                    <div className="grid lg:grid-cols-3 gap-4">
+                      <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-4 text-emerald-800">
+                        <p className="text-xs uppercase tracking-wide text-emerald-600">
+                          Recomendaciones automáticas
+                        </p>
+                        <div className="mt-3 space-y-2 text-sm">
+                          {reportRecommendations.map((item, index) => (
+                            <p key={`${item}-${index}`}>• {item}</p>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 rounded-2xl border border-amber-100 p-4 text-amber-800">
+                        <p className="text-xs uppercase tracking-wide text-amber-600">Alertas suaves</p>
+                        <div className="mt-3 space-y-2 text-sm">
+                          {reportAlerts.map((item, index) => (
+                            <p key={`${item}-${index}`}>• {item}</p>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="bg-sky-50 rounded-2xl border border-sky-100 p-4 text-sky-800">
+                        <p className="text-xs uppercase tracking-wide text-sky-600">Oportunidades de mejora</p>
+                        <div className="mt-3 space-y-2 text-sm">
+                          {reportOpportunities.map((item, index) => (
+                            <p key={`${item}-${index}`}>• {item}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <details className="text-sm text-gray-600">
+                    <summary className="cursor-pointer font-semibold text-gray-500">
+                      Detalles y gráficos (opcional)
+                    </summary>
+                    <div className="mt-4 space-y-6">
+                      {categoryData.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-white rounded-3xl shadow-2xl p-8"
+                        >
+                          <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                            <BarChart3 size={28} className="text-blue-500" />
+                            Ganancia por Categoría
+                          </h2>
+                          <ResponsiveContainer width="100%" height={300}>
+                            <RechartsBarChart data={categoryData}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                              <XAxis dataKey="category" stroke="#6b7280" />
+                              <YAxis stroke="#6b7280" />
+                              <Tooltip
+                                formatter={(value: number) => formatCurrency(value)}
+                                contentStyle={{
+                                  borderRadius: "8px",
+                                  border: "none",
+                                  boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+                                }}
+                              />
+                              <Bar dataKey="profit" radius={[8, 8, 0, 0]}>
+                                {categoryData.map((_, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Bar>
+                            </RechartsBarChart>
+                          </ResponsiveContainer>
+                        </motion.div>
+                      )}
+
+                      <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
+                        {BRANDING_ACTIVO && (
+                          <div
+                            className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b"
+                            style={{ borderColor: brand.primaryColor || "#E5E7EB" }}
+                          >
+                            <div className="flex items-center gap-3">
+                              {brand.logoDataUrl ? (
+                                <img
+                                  src={brand.logoDataUrl}
+                                  alt={brand.name || "Logo"}
+                                  className="h-10 w-10 rounded-lg object-contain bg-white"
+                                />
+                              ) : (
+                                <div
+                                  className="h-10 w-10 rounded-lg flex items-center justify-center text-white font-bold"
+                                  style={{ backgroundColor: brand.primaryColor || "#5b9dff" }}
+                                >
+                                  {brand.name?.trim().charAt(0) || "C"}
+                                </div>
+                              )}
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">Marca</p>
+                                <p className="text-lg font-semibold text-gray-800">{brand.name || "Costly3D"}</p>
+                              </div>
+                            </div>
+                            <div className="text-right text-xs text-gray-500">
+                              <p className="uppercase tracking-wide">Reporte mensual</p>
+                              <p className="font-semibold text-gray-700">
+                                {reportMonthLabel} {reportYear}
                               </p>
                             </div>
-                          ))
+                          </div>
                         )}
-                      </div>
-                      <div className="mt-3 space-y-1">
-                        {reporteMensual.ingresos.chart.values.length === 0 ? (
-                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
-                        ) : (
-                          reporteMensual.ingresos.chart.values.map((value, index) => {
-                            const label = reporteMensual.ingresos.chart.labels[index] ?? "Producto";
-                            const width = Math.min(100, (value / ingresosChartMax) * 100);
-                            return (
-                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
-                                <span className="w-16 truncate">{label}</span>
-                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
-                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">⚠️</span>
-                        <span className="text-2xl font-bold">
-                          {isProEnabled ? formatCurrency(reporteMensual.perdidas.total) : "—"}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm opacity-90">Perdidas por fallos</p>
-                      <div className="mt-3 flex items-center justify-between gap-4 text-xs">
-                        <div className="space-y-1">
-                          <p>Filamento perdido: {reporteMensual.perdidas.filamentoDesperdiciadoGramos.toFixed(0)} g</p>
-                          <p>Piezas fallidas: {reporteMensual.perdidas.piezasFallidas}</p>
-                          <p>Costos asociados: {formatCurrency(reporteMensual.perdidas.costos)}</p>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Reporte mensual de rentabilidad</h2>
+                            <p className="text-sm text-gray-600">
+                              Metrica profesional del mes con ingresos, fallos y consumo de filamento.
+                            </p>
+                          </div>
+                          <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
+                            PRO
+                          </span>
                         </div>
+
                         <div
-                          className="h-12 w-12 rounded-full"
-                          style={{
-                            background: `conic-gradient(rgba(255,255,255,0.95) ${reporteMensual.perdidas.chart.lossPct}%, rgba(255,255,255,0.2) 0)`,
-                          }}
-                          aria-label="Porcentaje de perdidas"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">🧵</span>
-                        <span className="text-2xl font-bold">
-                          {isProEnabled ? `${reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g` : "—"}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm opacity-90">Consumo de filamento</p>
-                      <div className="mt-3 space-y-1 text-xs">
-                        <p className="opacity-90">
-                          Horas impresas: {consumoImpresiones.tiempoTotalConsumido.toFixed(1)} h
-                        </p>
-                        <p className="opacity-90">
-                          Energia estimada: {formatCurrency(consumoImpresiones.energiaTotalConsumida)}
-                        </p>
-                        {reporteMensual.consumoFilamento.porTipo.length === 0 ? (
-                          <p className="opacity-80">Sin consumo registrado este mes.</p>
-                        ) : (
-                          reporteMensual.consumoFilamento.porTipo.slice(0, 3).map((item) => (
-                            <div key={item.material} className="flex items-center justify-between">
-                              <span>{item.material}</span>
-                              <span className="font-semibold">{item.grams.toFixed(0)} g</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div className="mt-3 space-y-1">
-                        {reporteMensual.consumoFilamento.chart.values.length === 0 ? (
-                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
-                        ) : (
-                          reporteMensual.consumoFilamento.chart.values.map((value, index) => {
-                            const label = reporteMensual.consumoFilamento.chart.labels[index] ?? "Material";
-                            const width = Math.min(100, (value / consumoChartMax) * 100);
-                            return (
-                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
-                                <span className="w-16 truncate">{label}</span>
-                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
-                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-emerald-500 to-blue-500 rounded-2xl shadow-lg p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">⭐</span>
-                        <span className="text-2xl font-bold">
-                          {isProEnabled ? reporteMensual.topProductos.items.length : "—"}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm opacity-90">Top productos</p>
-                      <div className="mt-3 space-y-2 text-xs">
-                        {reporteMensual.topProductos.items.length === 0 ? (
-                          <p className="opacity-80">Sin productos destacados este mes.</p>
-                        ) : (
-                          reporteMensual.topProductos.items.slice(0, 3).map((item) => (
-                            <div key={item.name} className="flex items-center justify-between">
-                              <div>
-                                <p className="font-semibold">{item.name}</p>
-                                <p className="text-[11px] opacity-80">
-                                  {item.unidades} uds · {item.margenPct.toFixed(1)}% margen
-                                </p>
-                              </div>
-                              <span className="font-semibold">{formatCurrency(item.ingresos)}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div className="mt-3 space-y-1">
-                        {reporteMensual.topProductos.chart.values.length === 0 ? (
-                          <p className="text-[11px] opacity-80">Sin datos para barras.</p>
-                        ) : (
-                          reporteMensual.topProductos.chart.values.map((value, index) => {
-                            const label = reporteMensual.topProductos.chart.labels[index] ?? "Producto";
-                            const width = Math.min(100, (value / topProductosChartMax) * 100);
-                            return (
-                              <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
-                                <span className="w-16 truncate">{label}</span>
-                                <div className="flex-1 h-1.5 rounded-full bg-white/20">
-                                  <div className="h-1.5 rounded-full bg-white/80" style={{ width: `${width}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div
-                      className={`rounded-2xl shadow-lg p-5 text-white ${
-                        rentabilidadPositive
-                          ? "bg-gradient-to-br from-emerald-500 to-emerald-600"
-                          : "bg-gradient-to-br from-red-500 to-red-600"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">📈</span>
-                        <span className="text-2xl font-bold">
-                          {isProEnabled ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm opacity-90">Rentabilidad neta</p>
-                      <p className="mt-3 text-sm">
-                        Margen neto:{" "}
-                        <span className="font-semibold">
-                          {reporteMensual.rentabilidadNeta.margenPct.toFixed(1)}%
-                        </span>
-                      </p>
-                      <div className="mt-3 h-2 rounded-full bg-white/20">
-                        <div
-                          className="h-2 rounded-full bg-white/80"
-                          style={{
-                            width: `${Math.min(100, Math.abs(reporteMensual.rentabilidadNeta.margenPct))}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-yellow-400 to-amber-500 rounded-2xl shadow-lg p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">📝</span>
-                        <span className="text-sm font-semibold">Insights</span>
-                      </div>
-                      <p className="mt-1 text-sm opacity-90">Recomendaciones</p>
-                      <div className="mt-3 space-y-2 text-xs">
-                        {reporteMensual.insights.map((item, index) => (
-                          <p key={`${item}-${index}`}>• {item}</p>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {!isProEnabled && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
-                      <div className="text-center px-6">
-                        <p className="text-sm text-gray-600 mb-4">
-                          Desbloquea el reporte mensual con Costly3D PRO.
-                        </p>
-                        <button
-                          type="button"
-                          className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                          onClick={() => handleOpenProModal("cta")}
+                          className={`mt-6 grid md:grid-cols-3 gap-4 ${
+                            isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"
+                          }`}
                         >
-                          Acceso anticipado PRO
-                        </button>
+                          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-5 text-white">
+                            <div className="flex items-center justify-between">
+                              <DollarSign size={24} />
+                              <span className="text-2xl font-bold">
+                                {isProEnabled ? formatCurrency(reporteMensual.ingresos.total) : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Ingresos reales</p>
+                            <div className="mt-3 space-y-2 text-xs">
+                              {reporteMensual.ingresos.productos.length === 0 ? (
+                                <p className="opacity-80">Sin ventas registradas este mes.</p>
+                              ) : (
+                                reporteMensual.ingresos.productos.slice(0, 3).map((item) => (
+                                  <div key={item.name} className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                      <span className="truncate">{item.name}</span>
+                                      <span className="font-semibold">{formatCurrency(item.subtotal)}</span>
+                                    </div>
+                                    <p className="text-[11px] opacity-80">
+                                      {item.quantity} x {formatCurrency(item.unitPrice)}
+                                    </p>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            <div className="mt-3 space-y-1">
+                              {reporteMensual.ingresos.chart.values.length === 0 ? (
+                                <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                              ) : (
+                                reporteMensual.ingresos.chart.values.map((value, index) => {
+                                  const label = reporteMensual.ingresos.chart.labels[index] ?? "Producto";
+                                  const width = Math.min(100, (value / ingresosChartMax) * 100);
+                                  return (
+                                    <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                      <span className="w-16 truncate">{label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                        <div
+                                          className="h-1.5 rounded-full bg-white/80"
+                                          style={{ width: `${width}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg p-5 text-white">
+                            <div className="flex items-center justify-between">
+                              <Trash2 size={24} />
+                              <span className="text-2xl font-bold">
+                                {isProEnabled ? formatCurrency(reporteMensual.perdidas.total) : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Perdidas por fallos</p>
+                            <div className="mt-3 flex items-center justify-between gap-4 text-xs">
+                              <div className="space-y-1">
+                                <p>
+                                  Filamento perdido: {reporteMensual.perdidas.filamentoDesperdiciadoGramos.toFixed(0)} g
+                                </p>
+                                <p>Piezas fallidas: {reporteMensual.perdidas.piezasFallidas}</p>
+                                <p>Costos asociados: {formatCurrency(reporteMensual.perdidas.costos)}</p>
+                              </div>
+                              <div
+                                className="h-12 w-12 rounded-full"
+                                style={{
+                                  background: `conic-gradient(rgba(255,255,255,0.95) ${reporteMensual.perdidas.chart.lossPct}%, rgba(255,255,255,0.2) 0)`,
+                                }}
+                                aria-label="Porcentaje de perdidas"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-5 text-white">
+                            <div className="flex items-center justify-between">
+                              <Package size={24} />
+                              <span className="text-2xl font-bold">
+                                {isProEnabled ? `${reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g` : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Consumo de filamento</p>
+                            <div className="mt-3 space-y-1 text-xs">
+                              <p className="opacity-90">
+                                Horas impresas: {consumoImpresiones.tiempoTotalConsumido.toFixed(1)} h
+                              </p>
+                              <p className="opacity-90">
+                                Energia estimada: {formatCurrency(consumoImpresiones.energiaTotalConsumida)}
+                              </p>
+                              {reporteMensual.consumoFilamento.porTipo.length === 0 ? (
+                                <p className="opacity-80">Sin consumo registrado este mes.</p>
+                              ) : (
+                                reporteMensual.consumoFilamento.porTipo.slice(0, 3).map((item) => (
+                                  <div key={item.material} className="flex items-center justify-between">
+                                    <span>{item.material}</span>
+                                    <span className="font-semibold">{item.grams.toFixed(0)} g</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            <div className="mt-3 space-y-1">
+                              {reporteMensual.consumoFilamento.chart.values.length === 0 ? (
+                                <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                              ) : (
+                                reporteMensual.consumoFilamento.chart.values.map((value, index) => {
+                                  const label = reporteMensual.consumoFilamento.chart.labels[index] ?? "Material";
+                                  const width = Math.min(100, (value / consumoChartMax) * 100);
+                                  return (
+                                    <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                      <span className="w-16 truncate">{label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                        <div
+                                          className="h-1.5 rounded-full bg-white/80"
+                                          style={{ width: `${width}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="bg-gradient-to-br from-emerald-500 to-blue-500 rounded-2xl shadow-lg p-5 text-white">
+                            <div className="flex items-center justify-between">
+                              <Sparkles size={24} />
+                              <span className="text-2xl font-bold">
+                                {isProEnabled ? reporteMensual.topProductos.items.length : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Top productos</p>
+                            <div className="mt-3 space-y-2 text-xs">
+                              {reporteMensual.topProductos.items.length === 0 ? (
+                                <p className="opacity-80">Sin productos destacados este mes.</p>
+                              ) : (
+                                reporteMensual.topProductos.items.slice(0, 3).map((item) => (
+                                  <div key={item.name} className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-semibold">{item.name}</p>
+                                      <p className="text-[11px] opacity-80">
+                                        {item.unidades} uds · {item.margenPct.toFixed(1)}% margen
+                                      </p>
+                                    </div>
+                                    <span className="font-semibold">{formatCurrency(item.ingresos)}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            <div className="mt-3 space-y-1">
+                              {reporteMensual.topProductos.chart.values.length === 0 ? (
+                                <p className="text-[11px] opacity-80">Sin datos para barras.</p>
+                              ) : (
+                                reporteMensual.topProductos.chart.values.map((value, index) => {
+                                  const label = reporteMensual.topProductos.chart.labels[index] ?? "Producto";
+                                  const width = Math.min(100, (value / topProductosChartMax) * 100);
+                                  return (
+                                    <div key={`${label}-${index}`} className="flex items-center gap-2 text-[10px]">
+                                      <span className="w-16 truncate">{label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/20">
+                                        <div
+                                          className="h-1.5 rounded-full bg-white/80"
+                                          style={{ width: `${width}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          <div
+                            className={`rounded-2xl shadow-lg p-5 text-white ${
+                              rentabilidadPositive
+                                ? "bg-gradient-to-br from-emerald-500 to-emerald-600"
+                                : "bg-gradient-to-br from-red-500 to-red-600"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <TrendingUp size={24} />
+                              <span className="text-2xl font-bold">
+                                {isProEnabled ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Rentabilidad neta</p>
+                            <p className="mt-3 text-sm">
+                              Margen neto:{" "}
+                              <span className="font-semibold">
+                                {reporteMensual.rentabilidadNeta.margenPct.toFixed(1)}%
+                              </span>
+                            </p>
+                            <div className="mt-3 h-2 rounded-full bg-white/20">
+                              <div
+                                className="h-2 rounded-full bg-white/80"
+                                style={{
+                                  width: `${Math.min(100, Math.abs(reporteMensual.rentabilidadNeta.margenPct))}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="bg-gradient-to-br from-yellow-400 to-amber-500 rounded-2xl shadow-lg p-5 text-white">
+                            <div className="flex items-center justify-between">
+                              <Target size={24} />
+                              <span className="text-sm font-semibold">Insights</span>
+                            </div>
+                            <p className="mt-1 text-sm opacity-90">Recomendaciones</p>
+                            <div className="mt-3 space-y-2 text-xs">
+                              {reporteMensual.insights.map((item, index) => (
+                                <p key={`${item}-${index}`}>• {item}</p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {!isProEnabled && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
+                            <div className="text-center px-6">
+                              <p className="text-sm text-gray-600 mb-4">
+                                Desbloquea el reporte mensual con Costly3D PRO.
+                              </p>
+                              <button
+                                type="button"
+                                className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+                                onClick={() => handleOpenProModal("cta")}
+                              >
+                                Acceso anticipado PRO
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
+                  </details>
                 </div>
               )}
+
 
               {(activeSection === "quotations" ||
                 activeSection === "production" ||
@@ -4028,7 +4146,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Editar producto"
                                       title="Editar producto"
                                     >
-                                      ✏️
+                                      ??
                                     </button>
                                     <button
                                       type="button"
@@ -4040,7 +4158,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Pasar a producción"
                                       title="Pasar a producción"
                                     >
-                                      ✅
+                                      ?
                                     </button>
                                     <button
                                       type="button"
@@ -4069,7 +4187,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                         aria-label="Empezar producción"
                                         title="Empezar producción"
                                       >
-                                        🏭
+                                        ??
                                       </button>
                                     ) : (
                                       <>
@@ -4083,7 +4201,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                           aria-label="Finalizar impresión"
                                           title="Finalizar impresión"
                                         >
-                                          ✅
+                                          ?
                                         </button>
                                         <button
                                           type="button"
@@ -4095,7 +4213,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                           aria-label="Registrar impresión fallida"
                                           title="Registrar impresión fallida"
                                         >
-                                          ❌
+                                          ?
                                         </button>
                                       </>
                                     )}
@@ -4114,7 +4232,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       aria-label="Duplicar impresión"
                                       title="Duplicar impresión"
                                     >
-                                      🔁
+                                      ??
                                     </button>
                                   )}
                               </div>
@@ -5205,7 +5323,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         {planChecklist.map((item) => (
                           <li key={item} className="flex items-start gap-3">
                             <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 text-xs font-bold">
-                              ✓
+                              ?
                             </span>
                             <span className="text-gray-700">{item}</span>
                           </li>
@@ -5544,7 +5662,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         </p>
                       </div>
                       <span className="text-xs font-semibold text-[color:var(--color-text-muted)]">
-                        🛠 DEV MODE ACTIVADO
+                        ?? DEV MODE ACTIVADO
                       </span>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -5829,7 +5947,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               <li>• No descuenta filamento todavía</li>
               <li>• No impacta reportes hasta finalizar la impresión</li>
             </ul>
-            <p className="mt-4 text-sm font-semibold text-red-500">⚠️ Esta acción no se puede deshacer.</p>
+            <p className="mt-4 text-sm font-semibold text-red-500">?? Esta acción no se puede deshacer.</p>
             <p className="mt-2 text-sm text-gray-600">¿Deseas continuar?</p>
             <div className="mt-6 flex flex-wrap gap-3">
               <button
@@ -6060,5 +6178,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 }
 
 export default Dashboard;
+
 
 
