@@ -1,4 +1,4 @@
-import { jsPDF } from "jspdf";
+﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { BrandingInfo } from "./brandingActivation";
 import type { ReporteMensual } from "./reporteMensual";
@@ -208,6 +208,24 @@ export const exportarPDF = async (
     pdf.setTextColor(0);
     pdf.text(value, x, y + 14);
   };
+  const lineHeight = 12;
+  const listItemGap = 2;
+  const wrapText = (text: string, maxWidth: number) =>
+    pdf.splitTextToSize(text, maxWidth) as string[];
+  const estimateWrappedHeight = (texts: string[], maxWidth: number) =>
+    texts.reduce((sum, text) => sum + wrapText(text, maxWidth).length * lineHeight + listItemGap, 0);
+  const drawWrappedList = (texts: string[], startX: number, maxWidth: number, startY: number) => {
+    let y = startY;
+    texts.forEach((text) => {
+      const lines = wrapText(text, maxWidth);
+      lines.forEach((line) => {
+        pdf.text(line, startX, y);
+        y += lineHeight;
+      });
+      y += listItemGap;
+    });
+    return y;
+  };
 
   const branding = reporteData.branding;
   const title = "Costly3D – Reporte mensual de producción y rentabilidad";
@@ -406,32 +424,38 @@ export const exportarPDF = async (
     .sort((a, b) => b.margen - a.margen)
     .slice(0, 5);
 
+  const rankingTextsByGanancia = topByGanancia.map(
+    (item, index) => `${index + 1}. ${item.name} — ${formatMoney(item.ganancia)} (${formatPercent(item.margen)}%)`,
+  );
+  const rankingTextsByMargen = topByMargen.map(
+    (item, index) => `${index + 1}. ${item.name} — ${formatPercent(item.margen)}%`,
+  );
+  const rankingColumnGap = 10;
+  const rankingColumnWidth = (contentWidth - rankingColumnGap) / 2;
+  const rankingListHeight = Math.max(
+    estimateWrappedHeight(rankingTextsByGanancia, rankingColumnWidth),
+    estimateWrappedHeight(rankingTextsByMargen, rankingColumnWidth),
+  );
+  cursorY += 8;
+  ensureSpace(rankingListHeight + 36);
   drawSectionTitle("Ranking de productos");
-  ensureSpace(120);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(11);
   pdf.text("Top por ganancia", margin, cursorY);
-  pdf.text("Top por margen", margin + contentWidth / 2 + 10, cursorY);
+  pdf.text("Top por margen", margin + rankingColumnWidth + rankingColumnGap, cursorY);
   cursorY += 14;
 
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(9);
   const listStartY = cursorY;
-  topByGanancia.forEach((item, index) => {
-    pdf.text(
-      `${index + 1}. ${item.name} — ${formatMoney(item.ganancia)} (${formatPercent(item.margen)}%)`,
-      margin,
-      listStartY + index * 14,
-    );
-  });
-  topByMargen.forEach((item, index) => {
-    pdf.text(
-      `${index + 1}. ${item.name} — ${formatPercent(item.margen)}%`,
-      margin + contentWidth / 2 + 10,
-      listStartY + index * 14,
-    );
-  });
-  cursorY = listStartY + Math.max(topByGanancia.length, topByMargen.length) * 14 + 8;
+  const gananciaEndY = drawWrappedList(rankingTextsByGanancia, margin, rankingColumnWidth, listStartY);
+  const margenEndY = drawWrappedList(
+    rankingTextsByMargen,
+    margin + rankingColumnWidth + rankingColumnGap,
+    rankingColumnWidth,
+    listStartY,
+  );
+  cursorY = Math.max(gananciaEndY, margenEndY) + 8;
 
   drawSectionTitle("Análisis de fallos");
   const pctFallos = totalRegistros > 0 ? (fallidas / totalRegistros) * 100 : 0;
@@ -465,3 +489,4 @@ export const exportarPDF = async (
 
   pdf.save(`reporte-mensual-${reporteData.periodoKey}.pdf`);
 };
+
