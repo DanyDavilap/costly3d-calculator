@@ -274,12 +274,20 @@ export default function App() {
     </div>
   );
 
+  type BetaStatus = "open" | "full";
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-  const BetaClosedScreen = ({ onBack }: { onBack: () => void }) => {
+  const BetaClosedScreen = ({
+    onBack,
+    initialStatus = "open",
+  }: {
+    onBack: () => void;
+    initialStatus?: BetaStatus;
+  }) => {
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
     const [error, setError] = useState("");
+    const [betaStatus, setBetaStatus] = useState<BetaStatus>(initialStatus);
 
     useEffect(() => {
       try {
@@ -294,6 +302,15 @@ export default function App() {
       } catch (storageError) {
         // Ignore storage errors to avoid blocking the UI.
       }
+    }, []);
+
+    useEffect(() => {
+      setBetaStatus(initialStatus);
+    }, [initialStatus]);
+
+    useEffect(() => {
+      // TODO: reemplazar por GET /beta-status cuando exista backend.
+      // Respuesta esperada: { status: "open" | "full" }.
     }, []);
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -325,16 +342,31 @@ export default function App() {
       status === "submitting"
         ? "Enviando..."
         : status === "success"
-          ? "Aviso enviado"
-          : "Avisarme cuando haya acceso";
+          ? betaStatus === "open"
+            ? "Solicitud enviada"
+            : "Aviso enviado"
+          : betaStatus === "open"
+            ? "Solicitar acceso a la beta"
+            : "Avisarme cuando haya acceso";
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <Card className="max-w-md w-full text-center">
-          <h1 className="text-xl font-bold text-slate-900">🚧 Beta cerrada (cupos completos)</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            La beta de Costly3D tiene cupos limitados. Dejanos tu email y te avisamos cuando se libere un lugar.
-          </p>
+          {betaStatus === "full" ? (
+            <>
+              <h1 className="text-xl font-bold text-slate-900">🚧 Beta cerrada (cupos completos)</h1>
+              <p className="mt-2 text-sm text-slate-500">
+                La beta de Costly3D tiene cupos limitados. Dejanos tu email y te avisamos cuando se libere un lugar.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-bold text-slate-900">Acceso a la beta cerrada de Costly3D</h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Dejanos tu email para solicitar acceso. Te confirmaremos si quedas dentro del cupo disponible.
+              </p>
+            </>
+          )}
           <form onSubmit={handleSubmit} className="mt-4 space-y-3 text-left">
             <div className="space-y-2">
               <label className="text-sm font-semibold text-slate-600">Email</label>
@@ -355,7 +387,15 @@ export default function App() {
             )}
             {status === "success" && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                Listo. Te avisaremos cuando haya cupo disponible.
+                {betaStatus === "open" ? (
+                  <>
+                    <p className="font-semibold">Solicitud enviada</p>
+                    <p>Revisamos accesos manualmente.</p>
+                    <p>Si quedas dentro del cupo, te avisamos por mail.</p>
+                  </>
+                ) : (
+                  <>Listo. Te avisaremos cuando haya cupo disponible.</>
+                )}
               </div>
             )}
             <Button type="submit" className="w-full" disabled={isLocked}>
@@ -396,7 +436,7 @@ export default function App() {
     </div>
   );
 
-  const BetaInfoScreen = () => <BetaClosedScreen onBack={() => navigate("/")} />;
+  const BetaInfoScreen = () => <BetaClosedScreen onBack={() => navigate("/")} initialStatus="open" />;
 
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
     const location = useLocation();
@@ -429,6 +469,7 @@ export default function App() {
             clearGate();
             navigate("/");
           }}
+          initialStatus="full"
         />
       );
     }

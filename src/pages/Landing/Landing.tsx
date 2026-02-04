@@ -147,8 +147,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
           </section>
 
-          {showProSections && (
-            <section className="section pro-section">
+          <section className="section pro-section">
             <div className="section-title">
               <h2>Lo que Costly3D habilita cuando tu negocio crece</h2>
               <p>Más control y rentabilidad para makers que ya venden y quieren escalar.</p>
@@ -202,8 +201,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                 </article>
               </div>
             </div>
-            </section>
-          )}
+          </section>
 
           {showProSections && (
             <section className="section comparison-section">
