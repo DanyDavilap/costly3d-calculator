@@ -14,7 +14,7 @@ import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { isAuthConfigured } from "./services/auth";
+import { isAuthConfigured, sendBetaWaitlist } from "./services/auth";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 
@@ -313,7 +313,7 @@ export default function App() {
       // Respuesta esperada: { status: "open" | "full" }.
     }, []);
 
-    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (status !== "idle") return;
       const trimmed = email.trim();
@@ -323,18 +323,29 @@ export default function App() {
       }
       setError("");
       setStatus("submitting");
-      try {
-        const payload = JSON.stringify({
-          email: trimmed,
-          createdAt: new Date().toISOString(),
-          source: "landing_beta_closed",
-        });
-        sessionStorage.setItem(BETA_WAITLIST_KEY, payload);
-      } catch (storageError) {
-        // Ignore storage errors to avoid blocking the UI.
+      const result = await sendBetaWaitlist({
+        email: trimmed,
+        source: "landing_beta_closed",
+        beta_status: betaStatus,
+      });
+      if (result.status === "sent") {
+        try {
+          sessionStorage.setItem(
+            BETA_WAITLIST_KEY,
+            JSON.stringify({
+              email: trimmed,
+              createdAt: new Date().toISOString(),
+              source: "landing_beta_closed",
+            }),
+          );
+        } catch (storageError) {
+          // Ignore storage errors to avoid blocking the UI.
+        }
+        setStatus("success");
+        return;
       }
-      // TODO: reemplazar por POST /beta-waitlist cuando exista backend.
-      setStatus("success");
+      setStatus("idle");
+      setError(result.message || "No pudimos enviar la solicitud. Intentá de nuevo.");
     };
 
     const isLocked = status === "submitting" || status === "success";
@@ -576,3 +587,4 @@ export default function App() {
     </>
   );
 }
+

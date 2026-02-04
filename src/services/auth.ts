@@ -40,6 +40,16 @@ export type BetaProfileResult =
   | { status: "expired"; profile?: BetaProfile }
   | { status: "error"; message: string };
 
+export type BetaWaitlistPayload = {
+  email: string;
+  source?: string;
+  beta_status?: "open" | "full";
+};
+
+export type BetaWaitlistResult =
+  | { status: "sent" }
+  | { status: "error"; message: string };
+
 const resolveRedirectTo = () => {
   if (typeof window === "undefined") return undefined;
   return `${window.location.origin}/app`;
@@ -100,6 +110,30 @@ export async function fetchBetaProfile(): Promise<BetaProfileResult> {
     return { status: "error", message: "No pudimos validar tu acceso." };
   } catch (error) {
     return { status: "error", message: "No pudimos validar tu acceso." };
+  }
+}
+
+export async function sendBetaWaitlist(payload: BetaWaitlistPayload): Promise<BetaWaitlistResult> {
+  if (!supabase) {
+    return { status: "error", message: "Configuracion de autenticacion incompleta." };
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke("beta-waitlist", {
+      body: payload,
+    });
+    if (error) {
+      return { status: "error", message: error.message };
+    }
+    const status = (data as { status?: string; message?: string } | null)?.status ?? "error";
+    if (status === "sent" || status === "ok") {
+      return { status: "sent" };
+    }
+    return {
+      status: "error",
+      message: (data as { message?: string } | null)?.message ?? "No pudimos enviar la solicitud.",
+    };
+  } catch (error) {
+    return { status: "error", message: "No pudimos enviar la solicitud." };
   }
 }
 
