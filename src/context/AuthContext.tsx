@@ -4,6 +4,7 @@ import {
   fetchBetaProfile,
   getSession,
   isAuthConfigured,
+  markUserVerified,
   requestBetaAccess,
   sendMagicLink,
   signOut,
@@ -161,6 +162,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     let isActive = true;
     setStatus("loading");
+    if (session.user?.email_confirmed_at && !session.user?.user_metadata?.beta_verified) {
+      markUserVerified().catch(() => {
+        // Ignore verification errors to avoid blocking login.
+      });
+    }
     fetchBetaProfile().then((result) => {
       if (!isActive) return;
       if (result.status === "expired") {

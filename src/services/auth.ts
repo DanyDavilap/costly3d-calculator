@@ -115,7 +115,10 @@ export async function fetchBetaProfile(): Promise<BetaProfileResult> {
 
 export async function sendBetaWaitlist(payload: BetaWaitlistPayload): Promise<BetaWaitlistResult> {
   if (!supabase) {
-    return { status: "error", message: "Configuracion de autenticacion incompleta." };
+    return {
+      status: "error",
+      message: "La beta cerrada aun no esta habilitada. Intenta de nuevo mas tarde.",
+    };
   }
   try {
     const { data, error } = await supabase.functions.invoke("beta-waitlist", {
@@ -135,6 +138,13 @@ export async function sendBetaWaitlist(payload: BetaWaitlistPayload): Promise<Be
   } catch (error) {
     return { status: "error", message: "No pudimos enviar la solicitud." };
   }
+}
+
+export async function markUserVerified() {
+  if (!supabase) return;
+  // Guardamos una marca simple en user_metadata para saber que el email fue confirmado.
+  // Esto no requiere claves privadas y se ejecuta solo cuando el usuario ya tiene sesion valida.
+  await supabase.auth.updateUser({ data: { beta_verified: true } });
 }
 
 export async function signOut() {

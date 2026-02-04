@@ -31,6 +31,7 @@ serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
+  // Parseamos el cuerpo para extraer el email y el contexto de la solicitud.
   let payload: WaitlistPayload = {};
   try {
     payload = (await req.json()) as WaitlistPayload;
@@ -60,6 +61,7 @@ serve(async (req) => {
   if (payload.source) bodyLines.push(`Origen: ${payload.source}`);
   if (payload.beta_status) bodyLines.push(`Estado beta: ${payload.beta_status}`);
 
+  // Enviamos el email administrativo usando el proveedor configurado.
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {

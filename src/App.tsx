@@ -323,6 +323,7 @@ export default function App() {
       }
       setError("");
       setStatus("submitting");
+      // Enviamos la solicitud al backend para disparar el email administrativo.
       const result = await sendBetaWaitlist({
         email: trimmed,
         source: "landing_beta_closed",
@@ -330,6 +331,7 @@ export default function App() {
       });
       if (result.status === "sent") {
         try {
+          // Guardamos el email para evitar multiples envios en la misma sesion.
           sessionStorage.setItem(
             BETA_WAITLIST_KEY,
             JSON.stringify({
