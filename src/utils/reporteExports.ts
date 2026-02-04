@@ -1,7 +1,7 @@
 ﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { BrandingInfo } from "./brandingActivation";
-import type { ReporteMensual } from "./reporteMensual";
+import type { MonthlyMetricsTotals, MonthlyReportSummary } from "./monthlyMetrics";
 
 export type ReporteDetalleRow = {
   fecha: string;
@@ -33,12 +33,13 @@ export type ReporteConsumoRow = {
 export type ReporteExportData = {
   periodoLabel: string;
   periodoKey: string;
-  ingresos: ReporteMensual["ingresos"];
-  perdidas: ReporteMensual["perdidas"];
-  consumoFilamento: ReporteMensual["consumoFilamento"];
-  topProductos: ReporteMensual["topProductos"];
-  rentabilidadNeta: ReporteMensual["rentabilidadNeta"];
-  insights: ReporteMensual["insights"];
+  ingresos: MonthlyReportSummary["ingresos"];
+  perdidas: MonthlyReportSummary["perdidas"];
+  consumoFilamento: MonthlyReportSummary["consumoFilamento"];
+  topProductos: MonthlyReportSummary["topProductos"];
+  rentabilidadNeta: MonthlyReportSummary["rentabilidadNeta"];
+  insights: MonthlyReportSummary["insights"];
+  totales: MonthlyMetricsTotals;
   detalle: ReporteDetalleRow[];
   consumoDetalle: ReporteConsumoRow[];
   branding?: BrandingInfo;
@@ -74,6 +75,7 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
     ["Reporte mensual", reporteData.periodoLabel],
     [],
     ["Ingresos totales", reporteData.ingresos.total],
+    ["Costos ventas", reporteData.totales.costosVentasTotal],
     ["Perdidas totales", reporteData.perdidas.total],
     ["Filamento desperdiciado (g)", reporteData.perdidas.filamentoDesperdiciadoGramos],
     ["Piezas fallidas", reporteData.perdidas.piezasFallidas],
@@ -155,6 +157,7 @@ export const exportarPDF = async (
   reporteData: ReporteExportData,
   element: HTMLElement | null,
 ) => {
+  void element;
   if (!reporteData || reporteData.detalle.length === 0) {
     throw new Error("NO_DATA");
   }
@@ -271,11 +274,9 @@ export const exportarPDF = async (
   cursorY += 24;
 
   const totalRegistros = reporteData.detalle.length;
-  const fallidas = reporteData.detalle.filter((row) => normalizeEstado(row.estado) === "Fallida").length;
-  const confirmadas = totalRegistros - fallidas;
-  const costosTotales = reporteData.detalle
-    .filter((row) => normalizeEstado(row.estado) !== "Fallida")
-    .reduce((sum, row) => sum + (row.costoTotal || 0), 0);
+  const fallidas = reporteData.totales.failedCount;
+  const confirmadas = reporteData.totales.okCount;
+  const costosTotales = reporteData.totales.costosVentasTotal + reporteData.totales.perdidasFallasTotal;
 
   drawSectionTitle("Resumen ejecutivo");
   ensureSpace(80);
@@ -361,20 +362,20 @@ export const exportarPDF = async (
       formatMoney(row.ganancia || 0),
     ];
 
-    const productLines = pdf.splitTextToSize(cells[0], tableColumns[0].width - 8);
-    const categoryLines = pdf.splitTextToSize(cells[1], tableColumns[1].width - 8);
+    const productLines = pdf.splitTextToSize(cells[0], tableColumns[0].width - 8) as string[];
+    const categoryLines = pdf.splitTextToSize(cells[1], tableColumns[1].width - 8) as string[];
     const rowLines = Math.max(productLines.length, categoryLines.length, 1);
     const rowHeight = rowLines * 12;
 
     ensureSpace(rowHeight + 4);
     let x = tableX;
 
-    productLines.forEach((line, index) => {
+    productLines.forEach((line: string, index: number) => {
       pdf.text(line, x + 4, cursorY + 10 + index * 12);
     });
     x += tableColumns[0].width;
 
-    categoryLines.forEach((line, index) => {
+    categoryLines.forEach((line: string, index: number) => {
       pdf.text(line, x + 4, cursorY + 10 + index * 12);
     });
     x += tableColumns[1].width;
@@ -480,8 +481,8 @@ export const exportarPDF = async (
   const note =
     "Este reporte se genera automáticamente a partir del historial registrado en Costly3D. " +
     "Los datos reflejan únicamente las impresiones registradas durante el período seleccionado.";
-  const noteLines = pdf.splitTextToSize(note, contentWidth);
-  noteLines.forEach((line) => {
+  const noteLines = pdf.splitTextToSize(note, contentWidth) as string[];
+  noteLines.forEach((line: string) => {
     ensureSpace(14);
     pdf.text(line, margin, cursorY);
     cursorY += 14;

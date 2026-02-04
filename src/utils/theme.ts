@@ -20,11 +20,6 @@ const safeStorageSet = (key: string, value: string) => {
   }
 };
 
-const getSystemTheme = (): ThemeMode => {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-};
-
 export const getStoredTheme = (): ThemeMode | null => {
   const stored = safeStorageGet(THEME_STORAGE_KEY);
   return stored === "dark" || stored === "light" ? stored : null;

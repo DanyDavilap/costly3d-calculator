@@ -42,13 +42,7 @@ import {
   PricingInputs,
   PricingParams,
 } from "../../utils/pricingCalculator";
-import { analisisRentabilidad, type ProductoRentabilidadInput } from "../../utils/analisisRentabilidad";
-import {
-  generarReporteMensual,
-  type ConsumoMensual,
-  type FalloMensual,
-  type VentaMensual,
-} from "../../utils/reporteMensual";
+import { calculateMonthlyMetrics } from "../../utils/monthlyMetrics";
 import {
   calcularConsumoImpresiones,
   type ImpresionConsumoInput,
@@ -79,10 +73,13 @@ type ProjectPieceStatus = "pendiente" | "impresa" | "fallida";
 interface FailureDetails {
   date: string;
   percentPrinted: number;
-  gramsLost: number;
-  gramsRecovered: number;
-  materialCostLost: number;
-  energyCostLost: number;
+  gramsLost?: number;
+  gramsRecovered?: number;
+  materialCostLost?: number;
+  energyCostLost?: number;
+  lostCost?: number;
+  lostGrams?: number;
+  reason?: string;
   note?: string;
 }
 
@@ -336,15 +333,41 @@ const normalizeHistoryRecord = (
   const rawFailure = (raw as HistoryRecord).failure ?? null;
   const failure =
     rawFailure && typeof rawFailure === "object"
-      ? {
-          ...rawFailure,
-          percentPrinted:
+      ? (() => {
+          const percentPrinted =
             typeof (rawFailure as FailureDetails).percentPrinted === "number"
               ? (rawFailure as FailureDetails).percentPrinted
               : typeof (rawFailure as unknown as { percentFailed?: number }).percentFailed === "number"
                 ? (rawFailure as unknown as { percentFailed: number }).percentFailed
-                : 0,
-        }
+                : 0;
+          const lostGramsValue =
+            typeof (rawFailure as FailureDetails).lostGrams === "number"
+              ? (rawFailure as FailureDetails).lostGrams
+              : typeof (rawFailure as FailureDetails).gramsLost === "number"
+                ? (rawFailure as FailureDetails).gramsLost
+                : undefined;
+          const materialCostLost =
+            typeof (rawFailure as FailureDetails).materialCostLost === "number"
+              ? (rawFailure as FailureDetails).materialCostLost
+              : undefined;
+          const energyCostLost =
+            typeof (rawFailure as FailureDetails).energyCostLost === "number"
+              ? (rawFailure as FailureDetails).energyCostLost
+              : undefined;
+          const lostCostValue =
+            typeof (rawFailure as FailureDetails).lostCost === "number"
+              ? (rawFailure as FailureDetails).lostCost
+              : materialCostLost !== undefined || energyCostLost !== undefined
+                ? (materialCostLost ?? 0) + (energyCostLost ?? 0)
+                : undefined;
+
+          return {
+            ...rawFailure,
+            percentPrinted,
+            lostGrams: lostGramsValue,
+            lostCost: lostCostValue,
+          };
+        })()
       : null;
   const stockDeductedGrams =
     typeof (raw as HistoryRecord).stockDeductedGrams === "number"
@@ -352,7 +375,7 @@ const normalizeHistoryRecord = (
       : status === "finalizada_ok"
         ? materialGramsUsed
         : status === "finalizada_fallida"
-          ? failure?.gramsLost ?? 0
+          ? failure?.lostGrams ?? failure?.gramsLost ?? 0
           : 0;
 
   return {
@@ -609,6 +632,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const [failureTarget, setFailureTarget] = useState<HistoryRecord | null>(null);
   const [failurePercent, setFailurePercent] = useState(50);
   const [failureNote, setFailureNote] = useState("");
+  const [failureDetailTarget, setFailureDetailTarget] = useState<HistoryRecord | null>(null);
   const isCalculatingRef = useRef(false);
   const lastSavedSignatureRef = useRef<string | null>(null);
   const [saveBanner, setSaveBanner] = useState<{
@@ -1015,18 +1039,22 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       const requiredGrams = grams;
       const isFailed = status === "finalizada_fallida";
       const percentPrinted = Math.min(99, Math.max(0, failurePercent ?? 0));
-      const gramsLost = isFailed ? (requiredGrams * percentPrinted) / 100 : 0;
+      const lostGrams = isFailed ? (requiredGrams * percentPrinted) / 100 : 0;
+      const lostCost = isFailed ? (breakdown.totalCost * percentPrinted) / 100 : 0;
       const failureDetails: FailureDetails | null = isFailed
         ? {
             date: dateLabel,
             percentPrinted,
-            gramsLost,
-            gramsRecovered: Math.max(0, requiredGrams - gramsLost),
-            materialCostLost: (breakdown.materialCost * percentPrinted) / 100,
-            energyCostLost: (breakdown.energyCost * percentPrinted) / 100,
-            note: "Datos demo",
-          }
-        : null;
+          lostGrams,
+          lostCost,
+          gramsLost: lostGrams,
+          gramsRecovered: Math.max(0, requiredGrams - lostGrams),
+          materialCostLost: (breakdown.materialCost * percentPrinted) / 100,
+          energyCostLost: (breakdown.energyCost * percentPrinted) / 100,
+          reason: "Datos demo",
+          note: "Datos demo",
+        }
+      : null;
 
       return {
         id: `demo-${name.replace(/\s+/g, "-").toLowerCase()}-${dateLabel.replace(/\//g, "")}`,
@@ -1046,7 +1074,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
         materialBrand: spool?.brand ?? null,
         quantity: 1,
         status,
-        stockDeductedGrams: isFailed ? gramsLost : status === "finalizada_ok" ? requiredGrams : 0,
+        stockDeductedGrams: isFailed ? lostGrams : status === "finalizada_ok" ? requiredGrams : 0,
         startedAt: null,
         completedAt: status === "finalizada_ok" || status === "finalizada_fallida" ? new Date().toISOString() : null,
         reprintOfId: null,
@@ -1171,6 +1199,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     showStockOnboarding &&
     (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
 
+  const globalMetrics = useMemo(() => calculateMonthlyMetrics(records), [records]);
+
   const rentabilidadData = useMemo(() => {
     const productMap = new Map<
       string,
@@ -1178,62 +1208,63 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
         nombre: string;
         categoria: string;
         ingresos: number;
+        costos: number;
         cantidad: number;
-        costoFilamento: number;
-        costoEnergia: number;
-        costoFallos: number;
-        otrosCostos: number;
       }
     >();
 
-    records.forEach((record) => {
-      const nombre = record.productName || record.name || "Producto";
-      const categoria = record.category || "General";
-      const current = productMap.get(nombre) ?? {
-        nombre,
-        categoria,
-        ingresos: 0,
-        cantidad: 0,
-        costoFilamento: 0,
-        costoEnergia: 0,
-        costoFallos: 0,
-        otrosCostos: 0,
-      };
+    globalMetrics.items.forEach((item) => {
+      const nombre = item.productName || "Producto";
+      const categoria = item.category || "General";
+      const current = productMap.get(nombre);
 
-      if (record.status === "finalizada_ok") {
-        const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
-        const price = record.total || record.breakdown.finalPrice;
-        current.ingresos += price * quantity;
-        current.cantidad += quantity;
-        current.costoFilamento += record.breakdown.materialCost * quantity;
-        current.costoEnergia += record.breakdown.energyCost * quantity;
-        current.otrosCostos +=
-          (record.breakdown.laborCost + record.breakdown.wearCost + record.breakdown.operatingCost) * quantity;
+      if (!current) {
+        productMap.set(nombre, {
+          nombre,
+          categoria,
+          ingresos: item.revenueItem,
+          costos: item.costTotalItem,
+          cantidad: item.isOk ? item.quantity : 0,
+        });
+        return;
       }
 
-      if (record.status === "finalizada_fallida") {
-        current.costoFallos += (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0);
+      current.ingresos += item.revenueItem;
+      current.costos += item.costTotalItem;
+      if (item.isOk) {
+        current.cantidad += item.quantity;
       }
-
-      productMap.set(nombre, current);
+      if (!current.categoria || current.categoria === "General") {
+        current.categoria = categoria;
+      }
     });
 
-    const productosInput: ProductoRentabilidadInput[] = Array.from(productMap.values()).map((item) => ({
-      nombre: item.nombre,
-      precioVenta: item.cantidad > 0 ? item.ingresos / item.cantidad : 0,
-      cantidadVendida: item.cantidad,
-      costoFilamento: item.costoFilamento,
-      costoEnergia: item.costoEnergia,
-      costoFallos: item.costoFallos,
-      otrosCostos: item.otrosCostos,
-      incluirCostosFijos: false,
-    }));
+    const productosConGanancia = Array.from(productMap.values()).map((item) => {
+      const gananciaNeta = item.ingresos - item.costos;
+      const margenReal = item.ingresos > 0 ? (gananciaNeta / item.ingresos) * 100 : 0;
+      return {
+        nombre: item.nombre,
+        ingresoTotal: item.ingresos,
+        costoTotal: item.costos,
+        gananciaNeta,
+        margenReal,
+        costosFijosAsignados: 0,
+        cantidadVendida: item.cantidad,
+      };
+    });
+
+    const rankingGanancia = [...productosConGanancia].sort((a, b) => b.gananciaNeta - a.gananciaNeta);
+    const rankingMargen = [...productosConGanancia].sort((a, b) => b.margenReal - a.margenReal);
 
     return {
-      analisis: analisisRentabilidad(productosInput, 0),
-      categorias: new Map(Array.from(productMap.entries()).map(([key, value]) => [key, value.categoria])),
+      analisis: {
+        productosConGanancia,
+        rankingGanancia,
+        rankingMargen,
+      },
+      categorias: new Map(Array.from(productMap.values()).map((item) => [item.nombre, item.categoria])),
     };
-  }, [records]);
+  }, [globalMetrics.items]);
 
   const rentabilidadEntries = rentabilidadData.analisis.productosConGanancia;
   const totalRentabilidadIngresos = rentabilidadEntries.reduce((sum, item) => sum + item.ingresoTotal, 0);
@@ -1353,9 +1384,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       }
     >();
 
-    records.forEach((record) => {
-      const productName = record.productName || record.name || "Producto";
-      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
+    globalMetrics.items.forEach((item) => {
+      const productName = item.productName || "Producto";
       const current = map.get(productName) ?? {
         successes: 0,
         failures: 0,
@@ -1363,21 +1393,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
         failureGrams: 0,
       };
 
-      if (record.status === "finalizada_ok") {
-        current.successes += quantity;
+      if (item.isOk) {
+        current.successes += item.quantity;
       }
 
-      if (record.status === "finalizada_fallida") {
-        current.failures += quantity;
-        current.failureCost += (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0);
-        current.failureGrams += record.failure?.gramsLost ?? 0;
+      if (item.isFailed) {
+        current.failures += item.quantity;
+        current.failureCost += item.failureCostItem;
+        current.failureGrams += item.gramsLost;
       }
 
       map.set(productName, current);
     });
 
     return map;
-  }, [records]);
+  }, [globalMetrics.items]);
 
   const marketingProducts = useMemo(() => {
     return rentabilidadEntries.map((item) => {
@@ -2344,6 +2374,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setFailureNote("");
   };
 
+  const openFailureDetailModal = (record: HistoryRecord) => {
+    setFailureDetailTarget(record);
+  };
+
+  const closeFailureDetailModal = () => {
+    setFailureDetailTarget(null);
+  };
+
   const handleConfirmProduction = () => {
     if (!confirmTarget) return;
     if (confirmTarget.status !== "cotizada") {
@@ -2447,8 +2485,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
     const required = getRequiredGramsForRecord(failureTarget);
     const percent = Math.min(99, Math.max(0, failurePercent));
-    const gramsLost = (required * percent) / 100;
-    const gramsRecovered = Math.max(0, required - gramsLost);
+    const lostGrams = (required * percent) / 100;
+    const lostCost = (failureTarget.breakdown.totalCost * percent) / 100;
+    const gramsRecovered = Math.max(0, required - lostGrams);
     const spool = failureTarget.selectedMaterialId
       ? materialStock.find((item) => item.id === failureTarget.selectedMaterialId)
       : undefined;
@@ -2456,7 +2495,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const alreadyDeducted = Number(failureTarget.stockDeductedGrams ?? 0);
     if (!isDemoSpool && spool) {
       const available = spool.gramsAvailable ?? 0;
-      const adjustment = alreadyDeducted - gramsLost;
+      const adjustment = alreadyDeducted - lostGrams;
       const nextStock = materialStock.map((item) => {
         if (item.id !== spool.id) return item;
         if (adjustment > 0) {
@@ -2472,10 +2511,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     const failureDetails: FailureDetails = {
       date: new Date().toLocaleDateString("es-AR"),
       percentPrinted: percent,
-      gramsLost,
+      lostGrams,
+      lostCost,
+      gramsLost: lostGrams,
       gramsRecovered,
       materialCostLost: (failureTarget.breakdown.materialCost * percent) / 100,
       energyCostLost: (failureTarget.breakdown.energyCost * percent) / 100,
+      reason: failureNote.trim() || undefined,
       note: failureNote.trim() || undefined,
     };
     const nextRecords = records.map((item) =>
@@ -2484,7 +2526,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
             ...item,
             status: "finalizada_fallida" as const,
             failure: failureDetails,
-            stockDeductedGrams: isDemoSpool ? 0 : gramsLost,
+            stockDeductedGrams: isDemoSpool ? 0 : lostGrams,
             completedAt: new Date().toISOString(),
           }
         : item,
@@ -2577,16 +2619,6 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
   const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
 
-  const categoryData = revenueRecords.reduce((acc: { category: string; profit: number }[], record) => {
-    const existing = acc.find((item) => item.category === record.category);
-    if (existing) {
-      existing.profit += record.breakdown.profit;
-    } else {
-      acc.push({ category: record.category, profit: record.breakdown.profit });
-    }
-    return acc;
-  }, []);
-
   const reportMonthLabel = MONTH_NAMES[reportMonth] ?? "";
   const monthlyRecords = revenueRecords.filter((record) => {
     const parsed = parseRecordDate(record.date);
@@ -2598,21 +2630,19 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     if (!parsed) return false;
     return parsed.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
   });
-  const monthlyFailureLosses = monthlyFailedRecords.reduce(
-    (sum, record) => sum + (record.failure?.materialCostLost ?? 0) + (record.failure?.energyCostLost ?? 0),
-    0,
-  );
-  const monthlyFailureGrams = monthlyFailedRecords.reduce(
-    (sum, record) => sum + (record.failure?.gramsLost ?? 0),
-    0,
-  );
-  const monthlyAttempted = monthlyRecords.length + monthlyFailedRecords.length;
-  const monthlyFailureRate = monthlyAttempted > 0 ? (monthlyFailedRecords.length / monthlyAttempted) * 100 : 0;
   const monthlyReportRecords = [...monthlyRecords, ...monthlyFailedRecords].sort((a, b) => {
     const dateA = parseRecordDate(a.date)?.getTime() ?? 0;
     const dateB = parseRecordDate(b.date)?.getTime() ?? 0;
     return dateB - dateA;
   });
+  const monthlyMetrics = useMemo(() => calculateMonthlyMetrics(monthlyReportRecords), [monthlyReportRecords]);
+  const monthlyItemsById = useMemo(
+    () => new Map(monthlyMetrics.items.map((item) => [item.id, item])),
+    [monthlyMetrics.items],
+  );
+  const monthlyFailureLosses = monthlyMetrics.totals.perdidasFallasTotal;
+  const monthlyFailureGrams = monthlyMetrics.totals.gramosDesperdiciados;
+  const monthlyFailureRate = monthlyMetrics.totals.tasaFallas;
   const consumoImpresiones = useMemo(() => {
     const impresiones: ImpresionConsumoInput[] = [...monthlyRecords, ...monthlyFailedRecords].map((record) => {
       const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
@@ -2632,46 +2662,57 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     return calcularConsumoImpresiones(impresiones);
   }, [monthlyRecords, monthlyFailedRecords]);
   const reportHours = consumoImpresiones.tiempoTotalConsumido;
-  const materialConsumptionByMaterial = new Map<string, number>();
-  const materialConsumptionByColor = new Map<string, number>();
-  const materialConsumptionByBrand = new Map<string, number>();
-  const materialConsumptionByCombo = new Map<string, { material: string; color: string; brand: string; grams: number }>();
-  let totalMaterialGrams = 0;
+  const materialConsumptionSummary = useMemo(() => {
+    const materialConsumptionByMaterial = new Map<string, number>();
+    const materialConsumptionByColor = new Map<string, number>();
+    const materialConsumptionByBrand = new Map<string, number>();
+    const materialConsumptionByCombo = new Map<
+      string,
+      { material: string; color: string; brand: string; grams: number }
+    >();
 
-  monthlyRecords.forEach((record) => {
-    const snapshot = resolveMaterialSnapshotFromRecord(record);
-    if (!snapshot || snapshot.grams <= 0) return;
-    const materialKey = snapshot.materialType || "Sin material";
-    const colorKey = snapshot.colorName || "Sin color";
-    const brandKey = snapshot.brandName || "Sin marca";
-    totalMaterialGrams += snapshot.grams;
-    materialConsumptionByMaterial.set(
-      materialKey,
-      (materialConsumptionByMaterial.get(materialKey) ?? 0) + snapshot.grams,
-    );
-    materialConsumptionByColor.set(
-      colorKey,
-      (materialConsumptionByColor.get(colorKey) ?? 0) + snapshot.grams,
-    );
-    materialConsumptionByBrand.set(
-      brandKey,
-      (materialConsumptionByBrand.get(brandKey) ?? 0) + snapshot.grams,
-    );
-    const comboKey = `${materialKey}||${colorKey}||${brandKey}`;
-    const combo = materialConsumptionByCombo.get(comboKey);
-    if (combo) {
-      combo.grams += snapshot.grams;
-    } else {
-      materialConsumptionByCombo.set(comboKey, {
-        material: materialKey,
-        color: colorKey,
-        brand: brandKey,
-        grams: snapshot.grams,
-      });
-    }
-  });
+    monthlyReportRecords.forEach((record) => {
+      const item = monthlyItemsById.get(record.id);
+      const gramsUsed = item?.gramsUsed ?? 0;
+      if (!Number.isFinite(gramsUsed) || gramsUsed <= 0) return;
+      const snapshot = resolveMaterialSnapshotFromRecord(record);
+      const materialKey = snapshot?.materialType || "Sin material";
+      const colorKey = snapshot?.colorName || "Sin color";
+      const brandKey = snapshot?.brandName || "Sin marca";
 
-  const materialConsumptionRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
+      materialConsumptionByMaterial.set(
+        materialKey,
+        (materialConsumptionByMaterial.get(materialKey) ?? 0) + gramsUsed,
+      );
+      materialConsumptionByColor.set(colorKey, (materialConsumptionByColor.get(colorKey) ?? 0) + gramsUsed);
+      materialConsumptionByBrand.set(brandKey, (materialConsumptionByBrand.get(brandKey) ?? 0) + gramsUsed);
+      const comboKey = `${materialKey}||${colorKey}||${brandKey}`;
+      const combo = materialConsumptionByCombo.get(comboKey);
+      if (combo) {
+        combo.grams += gramsUsed;
+      } else {
+        materialConsumptionByCombo.set(comboKey, {
+          material: materialKey,
+          color: colorKey,
+          brand: brandKey,
+          grams: gramsUsed,
+        });
+      }
+    });
+
+    const materialRows = Array.from(materialConsumptionByMaterial.entries())
+      .map(([material, grams]) => ({ material, grams }))
+      .sort((a, b) => b.grams - a.grams);
+    const comboRows = Array.from(materialConsumptionByCombo.values()).sort((a, b) => b.grams - a.grams);
+
+    return {
+      materialRows,
+      comboRows,
+    };
+  }, [materialStock, monthlyItemsById, monthlyReportRecords]);
+
+  const materialConsumptionRows = materialConsumptionSummary.comboRows;
+  const materialConsumptionByMaterial = materialConsumptionSummary.materialRows;
   const productionRecords = records.filter(
     (record) =>
       record.status === "en_produccion" ||
@@ -2693,63 +2734,111 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const HistoryIcon = activeSection === "production" ? Factory : History;
   const isReportView = activeSection === "reports";
   const reporteMensual = useMemo(() => {
-    const ventas: VentaMensual[] = monthlyRecords.map((record) => {
-      const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
-      const unitPrice = record.total || record.breakdown.finalPrice;
-      const total = unitPrice * quantity;
-      const costTotal = record.breakdown.totalCost * quantity;
-      return {
-        productName: record.productName || record.name || "Producto",
-        quantity,
-        unitPrice,
-        total,
-        costTotal,
-      };
-    });
+    const productos = monthlyMetrics.products
+      .filter((item) => item.revenue > 0 || item.units > 0 || item.cost > 0)
+      .map((item) => ({
+        name: item.name,
+        quantity: item.units,
+        unitPrice: item.units > 0 ? item.revenue / item.units : 0,
+        subtotal: item.revenue,
+        costTotal: item.cost,
+      }))
+      .sort((a, b) => b.subtotal - a.subtotal);
 
-    const fallos: FalloMensual[] = monthlyFailedRecords.map((record) => ({
-      productName: record.productName || record.name || "Producto",
-      gramsLost: record.failure?.gramsLost ?? 0,
-      piecesFailed:
-        typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1,
-      materialCostLost: record.failure?.materialCostLost ?? 0,
-      energyCostLost: record.failure?.energyCostLost ?? 0,
-    }));
+    const topProductos = monthlyMetrics.products
+      .filter((item) => item.revenue > 0)
+      .map((item) => ({
+        name: item.name,
+        ingresos: item.revenue,
+        unidades: item.units,
+        margenPct: item.revenue > 0 ? (item.profit / item.revenue) * 100 : 0,
+      }))
+      .sort((a, b) => b.ingresos - a.ingresos);
 
-    const consumoMap = new Map<string, number>();
-    const pushConsumo = (materialType: string, gramsUsed: number) => {
-      if (!Number.isFinite(gramsUsed) || gramsUsed <= 0) return;
-      const key = materialType || "Otro";
-      consumoMap.set(key, (consumoMap.get(key) ?? 0) + gramsUsed);
+    const consumoChart = materialConsumptionByMaterial.slice(0, 4);
+    const ingresosChart = productos.slice(0, 4);
+    const topProductosChart = topProductos.slice(0, 4);
+
+    const insights: string[] = [];
+    if (monthlyMetrics.totals.perdidasFallasTotal > 0) {
+      insights.push("Reducir fallos en impresiones criticas para mejorar margenes.");
+    }
+    if (topProductos[0]) {
+      insights.push(`Potenciar el producto ${topProductos[0].name} para maximizar ingresos.`);
+    }
+    if (monthlyMetrics.totals.gramosConsumidos > 0 && materialConsumptionByMaterial.length > 1) {
+      insights.push("Revisar consumos por material para optimizar compras y stock.");
+    }
+    if (insights.length === 0) {
+      insights.push("Mantener consistencia en precios y registrar mas ventas para metricas mas precisas.");
+    }
+
+    return {
+      ingresos: {
+        total: monthlyMetrics.totals.ingresosTotal,
+        productos,
+        chart: {
+          labels: ingresosChart.map((item) => item.name),
+          values: ingresosChart.map((item) => item.subtotal),
+        },
+      },
+      perdidas: {
+        total: monthlyMetrics.totals.perdidasFallasTotal,
+        filamentoDesperdiciadoGramos: monthlyMetrics.totals.gramosDesperdiciados,
+        piezasFallidas: monthlyMetrics.totals.failedCount,
+        costos: monthlyMetrics.totals.perdidasFallasTotal,
+        chart: {
+          lossPct:
+            monthlyMetrics.totals.ingresosTotal > 0
+              ? (monthlyMetrics.totals.perdidasFallasTotal / monthlyMetrics.totals.ingresosTotal) * 100
+              : 0,
+        },
+      },
+      consumoFilamento: {
+        totalGramos: monthlyMetrics.totals.gramosConsumidos,
+        porTipo: materialConsumptionByMaterial,
+        chart: {
+          labels: consumoChart.map((item) => item.material),
+          values: consumoChart.map((item) => item.grams),
+        },
+      },
+      topProductos: {
+        items: topProductos.map((item) => ({
+          name: item.name,
+          ingresos: item.ingresos,
+          unidades: item.unidades,
+          margenPct: item.margenPct,
+        })),
+        chart: {
+          labels: topProductosChart.map((item) => item.name),
+          values: topProductosChart.map((item) => item.ingresos),
+        },
+      },
+      rentabilidadNeta: {
+        neto: monthlyMetrics.totals.rentabilidadNetaReal,
+        margenPct: monthlyMetrics.totals.margenNetoRealPct,
+      },
+      insights,
     };
-
-    monthlyRecords.forEach((record) => {
-      const snapshot = resolveMaterialSnapshotFromRecord(record);
-      if (!snapshot) return;
-      pushConsumo(snapshot.materialType || "Otro", snapshot.grams);
+  }, [materialConsumptionByMaterial, monthlyMetrics]);
+  const categoryData = useMemo(() => {
+    const map = new Map<string, number>();
+    monthlyMetrics.items.forEach((item) => {
+      const category = item.category || "General";
+      map.set(category, (map.get(category) ?? 0) + item.netProfitItem);
     });
-
-    monthlyFailedRecords.forEach((record) => {
-      const snapshot = resolveMaterialSnapshotFromRecord(record);
-      const gramsLost = record.failure?.gramsLost ?? 0;
-      if (!snapshot) return;
-      pushConsumo(snapshot.materialType || "Otro", gramsLost);
-    });
-
-    const consumo: ConsumoMensual[] = Array.from(consumoMap.entries()).map(([materialType, gramsUsed]) => ({
-      materialType,
-      gramsUsed,
-    }));
-
-    return generarReporteMensual(ventas, fallos, consumo);
-  }, [monthlyRecords, monthlyFailedRecords, materialStock]);
+    return Array.from(map.entries()).map(([category, profit]) => ({ category, profit }));
+  }, [monthlyMetrics.items]);
   const rentabilidadPositive = reporteMensual.rentabilidadNeta.neto >= 0;
   const reporteExportData = useMemo<ReporteExportData>(() => {
     const detalle = monthlyReportRecords.map((record) => {
       const snapshot = resolveMaterialSnapshotFromRecord(record);
-      const isFailed = record.status === "finalizada_fallida";
-      const priceValue = isFailed ? 0 : record.breakdown.finalPrice;
-      const profitValue = isFailed ? 0 : record.breakdown.profit;
+      const item = monthlyItemsById.get(record.id);
+      const priceValue = item?.revenueItem ?? 0;
+      const profitValue = item?.netProfitItem ?? 0;
+      const costValue = item?.costTotalItem ?? record.breakdown.totalCost;
+      const gramsUsedValue = item?.gramsUsed ?? 0;
+      const gramsLostValue = item?.gramsLost ?? 0;
       return {
         fecha: record.date,
         producto: record.productName || record.name || "Producto",
@@ -2757,14 +2846,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
         estado: record.status,
         tiempoMin: Number(record.inputs.timeMinutes.toFixed(0)),
         materialGrams: Number(record.inputs.materialGrams.toFixed(0)),
-        costoTotal: Number(record.breakdown.totalCost.toFixed(0)),
+        costoTotal: Number(costValue.toFixed(0)),
         precioVenta: Number(priceValue.toFixed(0)),
         ganancia: Number(profitValue.toFixed(0)),
         material: snapshot?.materialType ?? "",
         color: snapshot?.colorName ?? "",
         marca: snapshot?.brandName ?? "",
-        gramosUsados: snapshot?.grams ? Number(snapshot.grams.toFixed(0)) : 0,
-        gramosPerdidos: record.failure?.gramsLost ? Number(record.failure.gramsLost.toFixed(0)) : 0,
+        gramosUsados: Number(gramsUsedValue.toFixed(0)),
+        gramosPerdidos: Number(gramsLostValue.toFixed(0)),
         costoMaterialPerdido: record.failure?.materialCostLost
           ? Number(record.failure.materialCostLost.toFixed(0))
           : 0,
@@ -2791,11 +2880,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       topProductos: reporteMensual.topProductos,
       rentabilidadNeta: reporteMensual.rentabilidadNeta,
       insights: reporteMensual.insights,
+      totales: monthlyMetrics.totals,
       detalle,
       consumoDetalle,
     };
   }, [
     materialConsumptionRows,
+    monthlyItemsById,
+    monthlyMetrics.totals,
     monthlyReportRecords,
     reportMonth,
     reportMonthLabel,
@@ -2853,6 +2945,27 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     }
     return opportunities.slice(0, 3);
   }, [monthlyFailureRate, monthlyRecords.length, reportHours, reporteMensual]);
+  useEffect(() => {
+    if (!isDev()) return;
+    if (monthlyMetrics.items.length === 0) return;
+    const rows = monthlyMetrics.items.map((item) => ({
+      status: item.status,
+      revenueItem: item.revenueItem,
+      costSalesItem: item.costSalesItem,
+      failureCostItem: item.failureCostItem,
+      netProfitItem: item.netProfitItem,
+      gramsUsed: item.gramsUsed,
+    }));
+    rows.push({
+      status: "TOTAL",
+      revenueItem: monthlyMetrics.totals.ingresosTotal,
+      costSalesItem: monthlyMetrics.totals.costosVentasTotal,
+      failureCostItem: monthlyMetrics.totals.perdidasFallasTotal,
+      netProfitItem: monthlyMetrics.totals.rentabilidadNetaReal,
+      gramsUsed: monthlyMetrics.totals.gramosConsumidos,
+    });
+    console.table(rows);
+  }, [monthlyMetrics]);
   const escenariosResumen = useMemo(() => compararEscenariosV1(scenarioInputs), [scenarioInputs]);
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? null,
@@ -2961,7 +3074,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => setActiveSection(item.id)}
+                          onClick={() => setActiveSection(item.id as DashboardSection)}
                           className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
                             isActive
                               ? "bg-blue-500 text-white shadow-md"
@@ -4081,8 +4194,28 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {tableRecords.map((record, index) => (
-                          <motion.tr
+                        {tableRecords.map((record, index) => {
+                          const reportItem = isReportView ? monthlyItemsById.get(record.id) : null;
+                          const costValue = isReportView && reportItem ? reportItem.costTotalItem : record.breakdown.totalCost;
+                          const priceValue =
+                            isReportView && reportItem
+                              ? reportItem.revenueItem
+                              : record.status === "finalizada_fallida"
+                                ? 0
+                                : record.breakdown.finalPrice;
+                          const profitValue =
+                            isReportView && reportItem
+                              ? reportItem.netProfitItem
+                              : record.status === "finalizada_fallida"
+                                ? 0
+                                : record.breakdown.profit;
+                          const profitClass =
+                            isReportView && reportItem && reportItem.netProfitItem < 0
+                              ? "text-red-600"
+                              : "text-green-600";
+
+                          return (
+                            <motion.tr
                             key={record.id}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -4115,13 +4248,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </td>
                             <td className="py-4 px-4 text-right text-gray-600">{formatTime(record.inputs.timeMinutes)}</td>
                             <td className="py-4 px-4 text-right text-gray-800 font-medium">
-                              {formatCurrency(record.breakdown.totalCost)}
+                              {formatCurrency(costValue)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-bold">
-                              {formatCurrency(record.status === "finalizada_fallida" ? 0 : record.breakdown.finalPrice)}
+                              {formatCurrency(priceValue)}
                             </td>
-                            <td className="py-4 px-4 text-right text-green-600 font-semibold">
-                              {formatCurrency(record.status === "finalizada_fallida" ? 0 : record.breakdown.profit)}
+                            <td className={`py-4 px-4 text-right font-semibold ${profitClass}`}>
+                              {formatCurrency(profitValue)}
                             </td>
                             <td className="py-4 px-4">
                               <span
@@ -4169,6 +4302,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       )}
                                     </button>
                                   </div>
+                                )}
+                                {activeSection === "quotations" && record.status === "finalizada_fallida" && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openFailureDetailModal(record);
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1 rounded-full border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                    title="Ver detalle de falla (PRO)"
+                                    aria-label="Ver detalle de falla (PRO)"
+                                  >
+                                    {isProEnabled ? <AlertTriangle size={14} /> : <Lock size={14} />}
+                                    Falla
+                                  </button>
                                 )}
                                 {!isReportView && record.status === "cotizada" && (
                                   <>
@@ -4274,7 +4422,8 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                               </div>
                             </td>
                           </motion.tr>
-                        ))}
+                        );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -6207,6 +6356,113 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 className="bg-red-500 text-white font-semibold px-5 py-3 rounded-xl hover:bg-red-600 transition-all"
               >
                 Confirmar fallo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {failureDetailTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={closeFailureDetailModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Detalle de falla"
+          >
+            <h3 className="text-2xl font-bold text-gray-900">Detalle de falla</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              {failureDetailTarget.productName || failureDetailTarget.name || "Producto"} · {failureDetailTarget.date}
+            </p>
+
+            {!isProEnabled ? (
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                <p className="font-semibold text-slate-800">Detalle de fallas PRO</p>
+                <p className="mt-2">
+                  El detalle de fallas está disponible en PRO para mejorar tus procesos.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenProModal("cta")}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition-all"
+                >
+                  <Lock size={14} />
+                  Acceso anticipado PRO
+                </button>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {(() => {
+                  const failure = failureDetailTarget.failure;
+                  if (!failure) {
+                    return (
+                      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                        No hay detalle de falla registrado para este item.
+                      </div>
+                    );
+                  }
+                  const percentPrinted =
+                    typeof failure.percentPrinted === "number" ? failure.percentPrinted : 0;
+                  const lostGrams =
+                    typeof failure.lostGrams === "number"
+                      ? failure.lostGrams
+                      : typeof failure.gramsLost === "number"
+                        ? failure.gramsLost
+                        : 0;
+                  const lostCost =
+                    typeof failure.lostCost === "number"
+                      ? failure.lostCost
+                      : (failure.materialCostLost ?? 0) + (failure.energyCostLost ?? 0);
+                  const reason = failure.reason ?? failure.note ?? "Sin comentario";
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                          <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                            Porcentaje impreso
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-gray-900">
+                            {percentPrinted.toFixed(0)}%
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                          <p className="text-[11px] uppercase tracking-wide text-gray-400">Filamento perdido</p>
+                          <p className="mt-2 text-lg font-semibold text-gray-900">
+                            {lostGrams.toFixed(0)} g
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                          <p className="text-[11px] uppercase tracking-wide text-gray-400">Costo perdido</p>
+                          <p className="mt-2 text-lg font-semibold text-gray-900">
+                            {formatCurrency(lostCost)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                          <p className="text-[11px] uppercase tracking-wide text-gray-400">Estado</p>
+                          <p className="mt-2 text-lg font-semibold text-red-500">Fallida</p>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Motivo</p>
+                        <p className="mt-2 text-sm text-gray-700 whitespace-pre-line">{reason}</p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={closeFailureDetailModal}
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cerrar
               </button>
             </div>
           </div>
