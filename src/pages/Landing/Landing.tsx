@@ -10,6 +10,7 @@ type LandingProps = {
 };
 
 export default function Landing({ onStart, onOpenProModal }: LandingProps) {
+  const showProSections = false; // TODO: reactivar secciones PRO cuando corresponda.
   return (
     <div className="landing">
       <div className="app-shell">
@@ -23,8 +24,8 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             <a href="#benefits">Beneficios</a>
             <a href="#cta">Empezar</a>
           </nav>
-          <button type="button" className="btn primary" onClick={onOpenProModal}>
-            Acceso anticipado
+          <button type="button" className="btn primary" onClick={onStart}>
+            Probar la beta
           </button>
         </header>
 
@@ -39,7 +40,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
               </p>
               <div className="hero-actions">
                 <button type="button" className="btn primary" onClick={onStart}>
-                  Probar la calculadora
+                  Probar la beta
                 </button>
                 <button type="button" className="btn ghost">
                   Ver cómo funciona
@@ -146,7 +147,8 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
           </section>
 
-          <section className="section pro-section">
+          {showProSections && (
+            <section className="section pro-section">
             <div className="section-title">
               <h2>Lo que Costly3D habilita cuando tu negocio crece</h2>
               <p>Más control y rentabilidad para makers que ya venden y quieren escalar.</p>
@@ -200,9 +202,11 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                 </article>
               </div>
             </div>
-          </section>
+            </section>
+          )}
 
-          <section className="section comparison-section">
+          {showProSections && (
+            <section className="section comparison-section">
             <div className="section-title">
               <h2>Free vs Pro — Elegí cómo querés trabajar</h2>
             </div>
@@ -231,7 +235,8 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
                 </button>
               </article>
             </div>
-          </section>
+            </section>
+          )}
 
           <section className="section">
             <div className="section-title">
@@ -243,19 +248,21 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
           </section>
 
-          <section className="card cta pro-cta">
-            <div>
-              <h2>Hoy podés probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
-            </div>
-            <div className="cta-actions">
-              <button type="button" className="btn primary" onClick={onStart}>
-                Probar la calculadora
-              </button>
-              <button type="button" className="btn ghost" onClick={onOpenProModal}>
-                Acceso anticipado PRO
-              </button>
-            </div>
-          </section>
+          {showProSections && (
+            <section className="card cta pro-cta">
+              <div>
+                <h2>Hoy podés probar Costly3D gratis. Cuando vendas más, tendrás las herramientas para escalar.</h2>
+              </div>
+              <div className="cta-actions">
+                <button type="button" className="btn primary" onClick={onStart}>
+                  Probar la beta
+                </button>
+                <button type="button" className="btn ghost" onClick={onOpenProModal}>
+                  Acceso anticipado PRO
+                </button>
+              </div>
+            </section>
+          )}
 
           <section id="benefits" className="section">
             <div className="section-title">
@@ -309,10 +316,7 @@ export default function Landing({ onStart, onOpenProModal }: LandingProps) {
             </div>
             <div className="cta-actions">
               <button type="button" className="btn primary" onClick={onStart}>
-                Probar la calculadora
-              </button>
-              <button type="button" className="btn ghost" onClick={onOpenProModal}>
-                Acceso anticipado
+                Probar la beta
               </button>
             </div>
           </section>

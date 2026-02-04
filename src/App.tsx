@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { track } from "@vercel/analytics";
 import { Toaster } from "sonner";
@@ -26,6 +26,8 @@ export default function App() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
+  const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";
+  const showProFlows = false; // TODO: reactivar flujo PRO cuando corresponda.
   const devMode = isDev();
   const navigate = useNavigate();
   const authConfigured = isAuthConfigured || import.meta.env.DEV === true;
@@ -43,6 +45,7 @@ export default function App() {
   }, []);
 
   const openProModal = (source: "limit" | "cta" = "cta") => {
+    if (!showProFlows) return;
     // Contexto del modal PRO: diferencia entre acceso voluntario (CTA) y bloqueo por límite FREE.
     // Punto único de entrada PRO: se reutiliza tanto por límite FREE como por CTA manual.
     setProModalSource(source);
@@ -89,6 +92,7 @@ export default function App() {
   };
 
   const openWaitlistModal = () => {
+    if (!showProFlows) return;
     console.log("PRO_WAITLIST_OPEN");
     setIsWaitlistOpen(true);
   };
@@ -108,7 +112,7 @@ export default function App() {
   const modalLayer = (
     <>
       <Toaster position="top-right" richColors />
-      {isProModalOpen && (
+      {showProFlows && isProModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
           onClick={() => setIsProModalOpen(false)}
@@ -177,7 +181,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {isWaitlistOpen && (
+      {showProFlows && isWaitlistOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
           onClick={closeWaitlistModal}
@@ -270,19 +274,101 @@ export default function App() {
     </div>
   );
 
-  const BetaFullScreen = ({ onBack }: { onBack: () => void }) => (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <Card className="max-w-md w-full text-center">
-        <h1 className="text-xl font-bold text-slate-900">Cupo beta completo</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          La beta cerrada ya esta completa. Sumate a la lista de espera.
-        </p>
-        <Button onClick={onBack} className="mt-5 w-full">
-          Volver
-        </Button>
-      </Card>
-    </div>
-  );
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+  const BetaClosedScreen = ({ onBack }: { onBack: () => void }) => {
+    const [email, setEmail] = useState("");
+    const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+      try {
+        const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
+        if (!saved) return;
+        const parsed = JSON.parse(saved) as { email?: string } | null;
+        const savedEmail = typeof parsed?.email === "string" ? parsed.email : saved;
+        if (savedEmail) {
+          setEmail(savedEmail);
+          setStatus("success");
+        }
+      } catch (storageError) {
+        // Ignore storage errors to avoid blocking the UI.
+      }
+    }, []);
+
+    const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (status !== "idle") return;
+      const trimmed = email.trim();
+      if (!isValidEmail(trimmed)) {
+        setError("Ingresá un email válido.");
+        return;
+      }
+      setError("");
+      setStatus("submitting");
+      try {
+        const payload = JSON.stringify({
+          email: trimmed,
+          createdAt: new Date().toISOString(),
+          source: "landing_beta_closed",
+        });
+        sessionStorage.setItem(BETA_WAITLIST_KEY, payload);
+      } catch (storageError) {
+        // Ignore storage errors to avoid blocking the UI.
+      }
+      // TODO: reemplazar por POST /beta-waitlist cuando exista backend.
+      setStatus("success");
+    };
+
+    const isLocked = status === "submitting" || status === "success";
+    const primaryLabel =
+      status === "submitting"
+        ? "Enviando..."
+        : status === "success"
+          ? "Aviso enviado"
+          : "Avisarme cuando haya acceso";
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <Card className="max-w-md w-full text-center">
+          <h1 className="text-xl font-bold text-slate-900">🚧 Beta cerrada (cupos completos)</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            La beta de Costly3D tiene cupos limitados. Dejanos tu email y te avisamos cuando se libere un lugar.
+          </p>
+          <form onSubmit={handleSubmit} className="mt-4 space-y-3 text-left">
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-600">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-2"
+                placeholder="tuemail@ejemplo.com"
+                autoComplete="email"
+                disabled={isLocked}
+              />
+            </div>
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            {status === "success" && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                Listo. Te avisaremos cuando haya cupo disponible.
+              </div>
+            )}
+            <Button type="submit" className="w-full" disabled={isLocked}>
+              {primaryLabel}
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
+              Volver a la landing
+            </Button>
+          </form>
+        </Card>
+      </div>
+    );
+  };
 
   const ExpiredScreen = ({ onLogout }: { onLogout: () => void }) => (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -310,19 +396,7 @@ export default function App() {
     </div>
   );
 
-  const BetaInfoScreen = () => (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <Card className="max-w-md w-full text-center">
-        <h1 className="text-xl font-bold text-slate-900">Beta cerrada no habilitada</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          La beta cerrada aun no esta habilitada. Sumate para recibir acceso.
-        </p>
-        <Button onClick={() => navigate("/")} className="mt-5 w-full">
-          Volver a la landing
-        </Button>
-      </Card>
-    </div>
-  );
+  const BetaInfoScreen = () => <BetaClosedScreen onBack={() => navigate("/")} />;
 
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
     const location = useLocation();
@@ -350,7 +424,7 @@ export default function App() {
     }
     if (gateStatus === "beta_full") {
       return (
-        <BetaFullScreen
+        <BetaClosedScreen
           onBack={() => {
             clearGate();
             navigate("/");
