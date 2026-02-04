@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.204.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,9 +50,37 @@ serve(async (req) => {
     return jsonResponse({ error: "Missing RESEND_API_KEY" }, 500);
   }
 
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) {
+    return jsonResponse({ error: "Missing Supabase service credentials" }, 500);
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
+
+  const now = new Date().toISOString();
+  const { error: insertError } = await supabaseAdmin
+    .from("beta_waitlist")
+    .upsert(
+      {
+        email,
+        beta_status: payload.beta_status ?? "open",
+        request_source: payload.source ?? null,
+        requested_at: now,
+        last_request_at: now,
+      },
+      { onConflict: "email" },
+    );
+
+  if (insertError) {
+    return jsonResponse({ error: "Failed to store waitlist", detail: insertError.message }, 500);
+  }
+
   const to = Deno.env.get("BETA_NOTIFICATION_TO") ?? "costly3d.beta@gmail.com";
   const from = Deno.env.get("BETA_NOTIFICATION_FROM") ?? "Costly3D <no-reply@costly3d.com>";
-  const requestedAt = new Date().toISOString();
+  const requestedAt = now;
 
   const subject = "Nueva solicitud de acceso a la beta - Costly3D";
   const bodyLines = [
@@ -59,7 +88,14 @@ serve(async (req) => {
     `Fecha y hora de la solicitud: ${requestedAt}`,
   ];
   if (payload.source) bodyLines.push(`Origen: ${payload.source}`);
-  if (payload.beta_status) bodyLines.push(`Estado beta: ${payload.beta_status}`);
+  if (payload.beta_status) {
+    bodyLines.push(`Estado beta: ${payload.beta_status}`);
+    bodyLines.push(
+      payload.beta_status === "open"
+        ? "Cupo asignado: SI (requiere activacion manual)"
+        : "Cupo asignado: NO (lista de espera)",
+    );
+  }
 
   // Enviamos el email administrativo usando el proveedor configurado.
   const response = await fetch("https://api.resend.com/emails", {

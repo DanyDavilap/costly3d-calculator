@@ -14,7 +14,7 @@ import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { isAuthConfigured, sendBetaWaitlist } from "./services/auth";
+import { isAuthConfigured, requestBetaAccess, sendBetaWaitlist } from "./services/auth";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 
@@ -323,11 +323,22 @@ export default function App() {
       }
       setError("");
       setStatus("submitting");
+      // Primero validamos el cupo con el backend (beta-access).
+      const access = await requestBetaAccess(trimmed);
+      if (access.status === "error") {
+        setStatus("idle");
+        setError(access.message || "No pudimos validar los cupos. Intentá de nuevo.");
+        return;
+      }
+
+      const nextStatus = access.status === "full" || access.status === "waitlist" ? "full" : "open";
+      setBetaStatus(nextStatus);
+
       // Enviamos la solicitud al backend para disparar el email administrativo.
       const result = await sendBetaWaitlist({
         email: trimmed,
         source: "landing_beta_closed",
-        beta_status: betaStatus,
+        beta_status: nextStatus,
       });
       if (result.status === "sent") {
         try {
