@@ -1,14 +1,23 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { track } from "@vercel/analytics";
 import { Toaster } from "sonner";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import DebugAnalyticsPanel, { debugTrack } from "./components/DebugAnalyticsPanel";
 import Dashboard from "./pages/Dashboard/Dashboard";
 import Landing from "./pages/Landing/Landing";
+import Login from "./pages/Login/Login";
+import Items from "./pages/Items/Items";
+import Faltantes from "./pages/Faltantes/Faltantes";
+import Reportes from "./pages/Reportes/Reportes";
+import Configuracion from "./pages/Configuracion/Configuracion";
+import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
+import { useAuth } from "./context/AuthContext";
+import Card from "./components/ui/Card";
+import Button from "./components/ui/Button";
 
 export default function App() {
-  const [view, setView] = useState<"landing" | "app">("landing");
   const [isProModalOpen, setIsProModalOpen] = useState(false);
   const [proModalSource, setProModalSource] = useState<"limit" | "cta" | null>(null);
   const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
@@ -17,6 +26,8 @@ export default function App() {
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const devMode = isDev();
+  const { status, gateStatus, profile, clearGate, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -249,28 +260,167 @@ export default function App() {
     </div>
   ) : null;
 
-  if (view === "landing") {
-    return (
-      <>
-        <Landing onStart={() => setView("app")} onOpenProModal={() => openProModal("cta")} />
-        <Analytics />
-        {import.meta.env.DEV && <DebugAnalyticsPanel />}
-        {devBadge}
-        {modalLayer}
-      </>
-    );
-  }
+  const LoadingScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">Verificando acceso...</h1>
+        <p className="mt-2 text-sm text-slate-500">Un momento, estamos validando tu cuenta.</p>
+      </Card>
+    </div>
+  );
+
+  const MisconfiguredScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">Configuracion incompleta</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Falta configurar la autenticacion para habilitar la beta cerrada.
+        </p>
+      </Card>
+    </div>
+  );
+
+  const BetaFullScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">Cupo beta completo</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          La beta cerrada ya esta completa. Sumate a la lista de espera.
+        </p>
+        <Button
+          onClick={() => {
+            clearGate();
+            navigate("/");
+          }}
+          className="mt-5 w-full"
+        >
+          Volver
+        </Button>
+      </Card>
+    </div>
+  );
+
+  const ExpiredScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">Acceso beta finalizado</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          Tu acceso beta ha finalizado. Gracias por probar Costly3D.
+        </p>
+        <Button onClick={logout} className="mt-5 w-full">
+          Salir
+        </Button>
+      </Card>
+    </div>
+  );
+
+  const ErrorScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">No pudimos validar tu acceso</h1>
+        <p className="mt-2 text-sm text-slate-500">Intentá ingresar nuevamente en unos minutos.</p>
+        <Button onClick={logout} className="mt-5 w-full">
+          Volver a intentar
+        </Button>
+      </Card>
+    </div>
+  );
+
+  const RequireAuth = ({ children }: { children: JSX.Element }) => {
+    const location = useLocation();
+    if (status === "loading") return <LoadingScreen />;
+    if (status === "misconfigured") return <MisconfiguredScreen />;
+    if (status === "beta_expired") return <ExpiredScreen />;
+    if (status === "error") return <ErrorScreen />;
+    if (status === "unauthenticated") {
+      return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+    return children;
+  };
+
+  const LoginRoute = () => {
+    const location = useLocation();
+    if (status === "authenticated") {
+      const fromPath =
+        (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/app";
+      return <Navigate to={fromPath} replace />;
+    }
+    if (gateStatus === "beta_full") {
+      return <BetaFullScreen />;
+    }
+    return <Login />;
+  };
 
   return (
     <>
-      <Dashboard onOpenProModal={openProModal} />
+      {modalLayer}
+      {devBadge}
+      <Routes>
+        <Route
+          path="/"
+          element={<Landing onStart={() => navigate("/app")} onOpenProModal={() => openProModal("cta")} />}
+        />
+        <Route path="/login" element={<LoginRoute />} />
+        <Route
+          path="/app/*"
+          element={
+            <RequireAuth>
+              <Dashboard onOpenProModal={openProModal} access={profile ?? undefined} />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/items"
+          element={
+            <RequireAuth>
+              <Items />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/faltantes"
+          element={
+            <RequireAuth>
+              <Faltantes />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/reportes"
+          element={
+            <RequireAuth>
+              <Reportes />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/configuracion"
+          element={
+            <RequireAuth>
+              <Configuracion />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/wiki"
+          element={
+            <RequireAuth>
+              <Wiki />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireAuth>
+              <Navigate to="/app" replace />
+            </RequireAuth>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
       <Analytics />
       {import.meta.env.DEV && <DebugAnalyticsPanel />}
-      {devBadge}
-      {modalLayer}
     </>
   );
 }
-
-
-

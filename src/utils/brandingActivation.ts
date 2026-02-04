@@ -14,8 +14,10 @@ export type BrandingInfo = Pick<
 export const activarBranding = (
   reporteData: ReporteExportData,
   brand: BrandSettings,
+  allowBranding: boolean = BRANDING_ACTIVO,
 ): ReporteExportData => {
-  if (!BRANDING_ACTIVO) return reporteData;
+  const isEnabled = allowBranding || BRANDING_ACTIVO;
+  if (!isEnabled) return reporteData;
   return {
     ...reporteData,
     branding: {

@@ -56,11 +56,13 @@ import {
   formatMoney,
   renderFooter,
   renderHeader,
+  DEFAULT_BRAND,
   type BrandSettings,
 } from "../../utils/pdfTheme";
 import { BRAND_STORAGE_KEY, loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
 import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
+import type { AccessProfile, FeatureFlags } from "../../context/AuthContext";
 import {
   compararEscenariosV1,
   type EscenarioComparadorV1Input,
@@ -87,6 +89,7 @@ interface HistoryRecord {
   id: string;
   date: string;
   createdAt?: string | null;
+  duplicatedFrom?: string | null;
   name: string;
   productName: string;
   category: string;
@@ -386,6 +389,7 @@ const normalizeHistoryRecord = (
       (raw as HistoryRecord).startedAt ??
       (raw as HistoryRecord).date ??
       new Date().toISOString(),
+    duplicatedFrom: (raw as HistoryRecord).duplicatedFrom ?? null,
     name: raw.name ?? raw.productName ?? "",
     productName: raw.productName ?? raw.name ?? "",
     category: normalizedCategory,
@@ -570,6 +574,7 @@ const isValidBreakdown = (breakdown: PricingBreakdown) =>
 
 type DashboardProps = {
   onOpenProModal?: (source?: "limit" | "cta") => void;
+  access?: AccessProfile;
 };
 
 type DashboardSection =
@@ -586,7 +591,7 @@ type DashboardSection =
   | "branding"
   | "settings";
 
-function Dashboard({ onOpenProModal }: DashboardProps) {
+function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const handleOpenProModal = onOpenProModal ?? (() => {});
   const [activeSection, setActiveSection] = useState<DashboardSection>("calculator");
   const [records, setRecords] = useState<HistoryRecord[]>(() => loadStoredRecords(loadStoredParams()));
@@ -875,6 +880,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       createdAt: new Date().toISOString(),
+      duplicatedFrom: null,
       name: project.name,
       productName: project.name,
       category: project.category || "General",
@@ -1191,9 +1197,21 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setMaterialStock(nextStock);
   };
 
-  const isFreeLimitReached = !isDev() && records.length >= FREE_PRODUCT_LIMIT;
-  const user: UserPlan = null;
+  const user: UserPlan = access?.plan ? { plan: access.plan } : null;
   const isProEnabled = isProUser(user);
+  const featureFlags: FeatureFlags = access?.features ?? {
+    branding: false,
+    advancedMetrics: false,
+    pdfWatermark: false,
+    advancedExports: false,
+    quoteExport: true,
+  };
+  const quoteLimit = access?.maxQuotes ?? FREE_PRODUCT_LIMIT;
+  const canBranding = BRANDING_ACTIVO || isProEnabled || featureFlags.branding;
+  const canAdvancedMetrics = isProEnabled || featureFlags.advancedMetrics;
+  const canAdvancedExport = isProEnabled || featureFlags.advancedExports;
+  const canQuoteExport = isProEnabled || featureFlags.quoteExport;
+  const shouldWatermarkPdf = featureFlags.pdfWatermark;
   const showStockOnboarding = materialStock.length === 0;
   const showStockBanner =
     showStockOnboarding &&
@@ -1916,9 +1934,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   ): boolean => {
     // Single source of truth: history persistence + free-limit checks live only here.
     const isGrowing = newRecords.length > records.length;
-    if (isGrowing && !isDev() && records.length >= FREE_PRODUCT_LIMIT) {
+    if (isGrowing && !isDev() && records.length >= quoteLimit) {
       // Punto único de entrada PRO: mismo modal para límite FREE y CTA manual.
-      handleOpenProModal("limit");
+      if (access?.plan === "beta") {
+        toast.info("Alcanzaste el limite de cotizaciones de la beta.", { duration: 2500 });
+      } else {
+        handleOpenProModal("limit");
+      }
       return false;
     }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
@@ -1943,12 +1965,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       productName,
       categoryName,
       dateLabel: formatDate(new Date()),
+      marginPercent: params.profitPercent,
+      profit: result.breakdown.profit,
       breakdown: {
         materiales: result.breakdown.materialCost,
         energia: result.breakdown.energyCost,
         manoDeObra: result.breakdown.laborCost,
         usoYMantenimiento: result.breakdown.wearCost + result.breakdown.operatingCost,
-        total: result.breakdown.finalPrice,
+        finalPrice: result.breakdown.finalPrice,
       },
     };
   };
@@ -1957,12 +1981,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     productName: string;
     categoryName: string;
     dateLabel: string;
+    marginPercent: number;
+    profit: number;
     breakdown: {
       materiales: number;
       energia: number;
       manoDeObra: number;
       usoYMantenimiento: number;
-      total: number;
+      finalPrice: number;
     };
   };
 
@@ -1970,12 +1996,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     productName: record.productName || record.name || "Producto",
     categoryName: record.category || "General",
     dateLabel: record.date || formatDate(new Date()),
+    marginPercent: record.params.profitPercent,
+    profit: record.breakdown.profit,
     breakdown: {
       materiales: record.breakdown.materialCost,
       energia: record.breakdown.energyCost,
       manoDeObra: record.breakdown.laborCost,
       usoYMantenimiento: record.breakdown.wearCost + record.breakdown.operatingCost,
-      total: record.breakdown.finalPrice,
+      finalPrice: record.breakdown.finalPrice,
     },
   });
 
@@ -1983,15 +2011,18 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     productName,
     categoryName,
     dateLabel,
+    marginPercent,
+    profit,
     breakdown,
   }: PdfData) => {
     if (!breakdown) return;
 
     const doc = new jsPDF();
-    const theme = createPdfTheme(brand);
+    const pdfBrand = canBranding ? brand : DEFAULT_BRAND;
+    const theme = createPdfTheme(pdfBrand);
     const pageWidth = doc.internal.pageSize.getWidth();
     const rightEdge = pageWidth - theme.marginX;
-    let cursorY = renderHeader(doc, brand, theme, "Cotización de producto");
+    let cursorY = renderHeader(doc, pdfBrand, theme, "Cotización de producto");
 
     const clientBreakdown = [
       { label: "Materiales", value: breakdown.materiales },
@@ -1999,6 +2030,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       { label: "Mano de obra", value: breakdown.manoDeObra },
       { label: "Uso y mantenimiento de equipo", value: breakdown.usoYMantenimiento },
     ];
+    const costTotal = clientBreakdown.reduce((acc, item) => acc + item.value, 0);
+    const cardWidth = pageWidth - theme.marginX * 2;
+    const cardPadding = 8;
+    const sectionGap = 10;
+    const lineHeight = theme.lineGap;
+    const labelColor = { r: 100, g: 116, b: 139 };
+    const mutedColor = { r: 148, g: 163, b: 184 };
+    const borderColor = { r: 226, g: 232, b: 240 };
+    const formattedMargin = Number.isFinite(marginPercent)
+      ? new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(marginPercent)
+      : "0";
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(theme.textSize);
@@ -2008,41 +2050,127 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     doc.text(`Categoría: ${categoryName}`, theme.marginX, cursorY);
     cursorY += theme.lineGap;
     doc.text(`Fecha: ${dateLabel}`, theme.marginX, cursorY);
-    cursorY += 6;
-    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.setLineWidth(0.4);
-    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
     cursorY += 8;
 
+    const drawCard = (height: number, title: string, renderContent: (startY: number) => void) => {
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(borderColor.r, borderColor.g, borderColor.b);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(theme.marginX, cursorY, cardWidth, height, 4, 4, "FD");
+
+      const titleY = cursorY + cardPadding + lineHeight;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(theme.textSize);
+      doc.setTextColor(theme.accent.r, theme.accent.g, theme.accent.b);
+      doc.text(title, theme.marginX + cardPadding, titleY);
+
+      renderContent(titleY + 6);
+      cursorY += height + sectionGap;
+    };
+
+    const costCardHeight =
+      cardPadding * 2 +
+      lineHeight +
+      4 +
+      clientBreakdown.length * lineHeight +
+      6 +
+      lineHeight +
+      lineHeight;
+
+    drawCard(costCardHeight, "Costos de producción", (startY) => {
+      let contentY = startY;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(theme.textSize);
+      doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
+      clientBreakdown.forEach((item) => {
+        doc.text(item.label, theme.marginX + cardPadding, contentY);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(17, 24, 39);
+        doc.text(formatMoney(item.value), rightEdge - cardPadding, contentY, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
+        contentY += lineHeight;
+      });
+
+      contentY += 2;
+      doc.setDrawColor(borderColor.r, borderColor.g, borderColor.b);
+      doc.setLineWidth(0.3);
+      doc.line(theme.marginX + cardPadding, contentY, rightEdge - cardPadding, contentY);
+      contentY += lineHeight;
+
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(17, 24, 39);
+      doc.text("Costo de producción", theme.marginX + cardPadding, contentY);
+      doc.text(formatMoney(costTotal), rightEdge - cardPadding, contentY, { align: "right" });
+      contentY += lineHeight;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(mutedColor.r, mutedColor.g, mutedColor.b);
+      doc.text("Detalle incluido para transparencia de costos.", theme.marginX + cardPadding, contentY);
+    });
+
+    const strategyCardHeight = cardPadding * 2 + lineHeight + 4 + lineHeight * 2;
+    drawCard(strategyCardHeight, "Estrategia de precio", (startY) => {
+      let contentY = startY;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(theme.textSize);
+      doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
+      doc.text("Margen aplicado", theme.marginX + cardPadding, contentY);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(17, 24, 39);
+      doc.text(`${formattedMargin}%`, rightEdge - cardPadding, contentY, { align: "right" });
+      contentY += lineHeight;
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
+      doc.text("Utilidad estimada", theme.marginX + cardPadding, contentY);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(17, 24, 39);
+      doc.text(formatMoney(profit), rightEdge - cardPadding, contentY, { align: "right" });
+    });
+
+    const priceCardHeight = cardPadding * 2 + lineHeight + 6 + 22 + lineHeight + 4;
+    doc.setFillColor(239, 246, 255);
+    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(theme.marginX, cursorY, cardWidth, priceCardHeight, 5, 5, "FD");
+
+    const priceTitleY = cursorY + cardPadding + lineHeight;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(theme.textSize);
-    doc.text("Desglose", theme.marginX, cursorY);
-    cursorY += theme.lineGap;
+    doc.setTextColor(theme.accent.r, theme.accent.g, theme.accent.b);
+    doc.text("Precio final sugerido", theme.marginX + cardPadding, priceTitleY);
+
+    const priceValueY = priceTitleY + 16;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor(17, 24, 39);
+    doc.text(formatMoney(breakdown.finalPrice), rightEdge - cardPadding, priceValueY, {
+      align: "right",
+    });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(theme.textSize);
-    clientBreakdown.forEach((item) => {
-      doc.text(item.label, theme.marginX, cursorY);
-      doc.setFont("helvetica", "bold");
-      doc.text(formatMoney(item.value), rightEdge, cursorY, { align: "right" });
+    doc.setFontSize(9);
+    doc.setTextColor(mutedColor.r, mutedColor.g, mutedColor.b);
+    doc.text(
+      "Precio sugerido calculado en base a costos reales y margen objetivo.",
+      theme.marginX + cardPadding,
+      priceValueY + lineHeight,
+    );
+    cursorY += priceCardHeight + sectionGap;
+
+    if (shouldWatermarkPdf) {
+      const watermarkY = doc.internal.pageSize.getHeight() - 26;
       doc.setFont("helvetica", "normal");
-      cursorY += theme.lineGap;
-    });
-    cursorY += 2;
-    doc.setDrawColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.setLineWidth(0.4);
-    doc.line(theme.marginX, cursorY, rightEdge, cursorY);
-    cursorY += 8;
+      doc.setFontSize(9);
+      doc.setTextColor(148, 163, 184);
+      doc.text("Generado con Costly3D - Version Beta", pageWidth / 2, watermarkY, {
+        align: "center",
+      });
+    }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(theme.accent.r, theme.accent.g, theme.accent.b);
-    doc.text("TOTAL FINAL SUGERIDO", theme.marginX, cursorY);
-    doc.setFontSize(theme.totalSize);
-    doc.text(formatMoney(breakdown.total), rightEdge, cursorY + 1, { align: "right" });
-    cursorY += 12;
-
-    renderFooter(doc, brand, theme);
+    renderFooter(doc, pdfBrand, theme);
 
     const fileSafeName = (productName || "producto")
       .trim()
@@ -2065,13 +2193,13 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   const exportQuotationPdf = () => {
     const data = buildPdfDataFromResult();
     if (!data) return;
-    const allowExport = !isFreeLimitReached || isProEnabled;
+    const allowExport = canQuoteExport;
     attemptPdfExport(data, allowExport);
   };
 
   const exportRecordPdf = (record: HistoryRecord) => {
     const data = buildPdfDataFromRecord(record);
-    attemptPdfExport(data, isProEnabled);
+    attemptPdfExport(data, canQuoteExport);
   };
 
   const getInputs = () => {
@@ -2102,6 +2230,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       id: recordId ?? Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       createdAt: new Date().toISOString(),
+      duplicatedFrom: null,
       name: toyName || "Sin nombre",
       productName: toyName || "Sin nombre",
       category: category.trim() || "General",
@@ -2254,24 +2383,32 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
   };
 
   const handleExportExcel = () => {
+    if (!canAdvancedExport) {
+      toast.info("Las exportaciones avanzadas no están disponibles en tu plan.", { duration: 2500 });
+      return;
+    }
     if (monthlyReportRecords.length === 0) {
       toast.error("No hay datos para exportar el reporte.");
       return;
     }
     try {
-      exportarExcel(activarBranding(reporteExportData, brand));
+      exportarExcel(activarBranding(reporteExportData, brand, canBranding));
     } catch (error) {
       toast.error("No pudimos generar el Excel. Intentalo de nuevo.");
     }
   };
 
   const handleExportPdf = async () => {
+    if (!canAdvancedExport) {
+      toast.info("Las exportaciones avanzadas no están disponibles en tu plan.", { duration: 2500 });
+      return;
+    }
     if (monthlyReportRecords.length === 0) {
       toast.error("No hay datos para exportar el reporte.");
       return;
     }
     try {
-      await exportarPDF(activarBranding(reporteExportData, brand), reportCardsRef.current);
+      await exportarPDF(activarBranding(reporteExportData, brand, canBranding), reportCardsRef.current);
     } catch (error) {
       toast.error("No pudimos generar el PDF. Intentalo de nuevo.");
     }
@@ -2561,16 +2698,56 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
     setActiveSection("calculator");
   };
 
-  const duplicateRecord = (record: HistoryRecord) => {
-    const materialGramsUsed =
-      typeof record.materialGramsUsed === "number" && Number.isFinite(record.materialGramsUsed)
-        ? record.materialGramsUsed
-        : (record.inputs?.materialGrams ?? 0) * (record.quantity || 1);
+  const duplicateQuotation = (originalId: string) => {
+    const original = records.find((record) => record.id === originalId);
+    if (!original) {
+      toast.error("No encontramos la cotización seleccionada.");
+      return;
+    }
+    if (original.status === "en_produccion") {
+      toast.info("No podés duplicar una cotización en producción.", { duration: 2500 });
+      return;
+    }
+    if (!isValidInputs(original.inputs)) {
+      toast.info("Esta cotización está incompleta y no se puede duplicar.", { duration: 2500 });
+      return;
+    }
+    if (!isValidParams(params)) {
+      toast.info("Revisá los parámetros actuales antes de duplicar.", { duration: 2500 });
+      return;
+    }
+    const inputs: PricingInputs = { ...original.inputs };
+    const paramsSnapshot: PricingParams = { ...params };
+    const breakdown = pricingCalculator({ inputs, params: paramsSnapshot });
+    if (!isValidBreakdown(breakdown)) {
+      toast.info("No pudimos recalcular la cotización con los valores actuales.", { duration: 2500 });
+      return;
+    }
+    const quantity = typeof original.quantity === "number" && original.quantity > 0 ? original.quantity : 1;
+    const fallbackSpool = original.selectedMaterialId
+      ? materialStock.find((item) => item.id === original.selectedMaterialId)
+      : undefined;
+    const materialType = original.materialType ?? fallbackSpool?.materialType ?? null;
+    const materialColorName = original.materialColorName ?? fallbackSpool?.color?.name ?? null;
+    const materialBrand = original.materialBrand ?? fallbackSpool?.brand ?? null;
     const duplicated: HistoryRecord = {
-      ...record,
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       createdAt: new Date().toISOString(),
+      duplicatedFrom: original.id,
+      name: original.name,
+      productName: original.productName || original.name,
+      category: original.category || "General",
+      inputs,
+      params: paramsSnapshot,
+      breakdown,
+      total: breakdown.finalPrice,
+      selectedMaterialId: original.selectedMaterialId ?? "",
+      materialGramsUsed: inputs.materialGrams * quantity,
+      materialType,
+      materialColorName,
+      materialBrand,
+      quantity,
       status: "cotizada",
       stockDeductedGrams: 0,
       startedAt: null,
@@ -2578,9 +2755,11 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
       reprintOfId: null,
       failure: null,
       stockChanges: [],
-      materialGramsUsed,
     };
-    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    const saved = persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    if (saved) {
+      toast.success("Cotización duplicada. Se recalcularon los costos actuales.");
+    }
   };
 
   const duplicateProduction = (record: HistoryRecord) => {
@@ -3506,9 +3685,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                         <div className="mt-4 flex items-center justify-center">
                           <div
                             className="relative inline-flex"
-                            title={!isProEnabled && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                            title={!canQuoteExport ? "Disponible en Costly3D PRO" : undefined}
                           >
-                            {!isProEnabled && isFreeLimitReached && (
+                            {!canQuoteExport && (
                               <button
                                 type="button"
                                 className="absolute inset-0 cursor-not-allowed"
@@ -3518,15 +3697,17 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             )}
                             <button
                               type="button"
-                              disabled={!isProEnabled && isFreeLimitReached}
+                              disabled={!canQuoteExport}
                               onClick={exportQuotationPdf}
                               className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-white px-4 py-2 text-sm font-semibold text-green-700 shadow-sm transition hover:bg-green-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                              title={!isProEnabled && isFreeLimitReached ? "Disponible en Costly3D PRO" : undefined}
+                              title={!canQuoteExport ? "Disponible en Costly3D PRO" : undefined}
                             >
                               Exportar cotización (PDF)
-                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
-                                PRO
-                              </span>
+                              {!canQuoteExport && (
+                                <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                                  PRO
+                                </span>
+                              )}
                             </button>
                           </div>
                         </div>
@@ -3597,7 +3778,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   <div
                     id="proMonthlyReport"
                     ref={reportCardsRef}
-                    className={`space-y-6 ${!isProEnabled ? "blur-sm opacity-60 pointer-events-none" : ""}`}
+                    className={`space-y-6 ${!canAdvancedMetrics ? "blur-sm opacity-60 pointer-events-none" : ""}`}
                   >
                   <div className="bg-white rounded-3xl shadow-2xl p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -3800,7 +3981,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       )}
 
                       <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
-                        {BRANDING_ACTIVO && (
+                        {canBranding && (
                           <div
                             className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b"
                             style={{ borderColor: brand.primaryColor || "#E5E7EB" }}
@@ -3847,14 +4028,14 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
                         <div
                           className={`mt-6 grid md:grid-cols-3 gap-4 ${
-                            isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"
+                            canAdvancedMetrics ? "" : "blur-sm opacity-60 pointer-events-none"
                           }`}
                         >
                           <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-5 text-white">
                             <div className="flex items-center justify-between">
                               <DollarSign size={24} />
                               <span className="text-2xl font-bold">
-                                {isProEnabled ? formatCurrency(reporteMensual.ingresos.total) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(reporteMensual.ingresos.total) : "—"}
                               </span>
                             </div>
                             <p className="mt-1 text-sm opacity-90">Ingresos reales</p>
@@ -3902,7 +4083,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             <div className="flex items-center justify-between">
                               <Trash2 size={24} />
                               <span className="text-2xl font-bold">
-                                {isProEnabled ? formatCurrency(reporteMensual.perdidas.total) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(reporteMensual.perdidas.total) : "—"}
                               </span>
                             </div>
                             <p className="mt-1 text-sm opacity-90">Perdidas por fallos</p>
@@ -3928,7 +4109,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             <div className="flex items-center justify-between">
                               <Package size={24} />
                               <span className="text-2xl font-bold">
-                                {isProEnabled ? `${reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g` : "—"}
+                                {canAdvancedMetrics
+                                  ? `${reporteMensual.consumoFilamento.totalGramos.toFixed(0)} g`
+                                  : "—"}
                               </span>
                             </div>
                             <p className="mt-1 text-sm opacity-90">Consumo de filamento</p>
@@ -3977,7 +4160,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             <div className="flex items-center justify-between">
                               <Sparkles size={24} />
                               <span className="text-2xl font-bold">
-                                {isProEnabled ? reporteMensual.topProductos.items.length : "—"}
+                                {canAdvancedMetrics ? reporteMensual.topProductos.items.length : "—"}
                               </span>
                             </div>
                             <p className="mt-1 text-sm opacity-90">Top productos</p>
@@ -4031,7 +4214,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             <div className="flex items-center justify-between">
                               <TrendingUp size={24} />
                               <span className="text-2xl font-bold">
-                                {isProEnabled ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
                               </span>
                             </div>
                             <p className="mt-1 text-sm opacity-90">Rentabilidad neta</p>
@@ -4065,7 +4248,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           </div>
                         </div>
 
-                        {!isProEnabled && (
+                        {!canAdvancedMetrics && (
                           <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
                             <div className="text-center px-6">
                               <p className="text-sm text-gray-600 mb-4">
@@ -4086,7 +4269,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                   </details>
                   </div>
 
-                  {!isProEnabled && (
+                  {!canAdvancedMetrics && (
                     <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
                       <div className="text-center px-6">
                         <p className="text-sm text-gray-600 mb-4">
@@ -4143,7 +4326,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                       <button
                         id="btnExportPDF"
                         onClick={handleExportPdf}
-                        disabled={monthlyRecords.length === 0}
+                        disabled={!canAdvancedExport || monthlyReportRecords.length === 0}
                         className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                       >
                         <Download size={18} />
@@ -4153,7 +4336,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <button
                       id="btnExportExcel"
                       onClick={handleExportExcel}
-                      disabled={monthlyRecords.length === 0}
+                      disabled={!canAdvancedExport || monthlyReportRecords.length === 0}
                       className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                     >
                       <Download size={18} />
@@ -4223,11 +4406,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                             onClick={(event) => {
                               if (activeSection !== "quotations") return;
-                              // Historial shortcut: Alt + click = duplicar cálculo.
+                              // Historial shortcut: Alt + click = duplicar cotización.
                               if (event.altKey) {
-                                if (record.status === "cotizada") {
-                                  duplicateRecord(record);
-                                }
+                                duplicateQuotation(record.id);
                                 return;
                               }
                               // Historial shortcut: click = abrir para ver/editar.
@@ -4268,9 +4449,9 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                 {activeSection === "quotations" && (
                                   <div
                                     className="relative inline-flex"
-                                    title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}
+                                    title={!canQuoteExport ? "Disponible en Costly3D PRO" : undefined}
                                   >
-                                    {!isProEnabled && (
+                                    {!canQuoteExport && (
                                       <button
                                         type="button"
                                         className="absolute inset-0 cursor-not-allowed"
@@ -4280,16 +4461,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     )}
                                     <button
                                       type="button"
-                                      disabled={!isProEnabled}
+                                      disabled={!canQuoteExport}
                                       onClick={(event) => {
                                         event.stopPropagation();
-                                        if (!isProEnabled) return;
+                                        if (!canQuoteExport) return;
                                         exportRecordPdf(record);
                                       }}
                                       className="inline-flex items-center justify-center gap-1 rounded-full border border-purple-200 px-2 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                                      title={!isProEnabled ? "Disponible en Costly3D PRO" : undefined}
+                                      title={!canQuoteExport ? "Disponible en Costly3D PRO" : undefined}
                                     >
-                                      {isProEnabled ? (
+                                      {canQuoteExport ? (
                                         <>
                                           <Download size={14} />
                                           PDF
@@ -4303,21 +4484,24 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                     </button>
                                   </div>
                                 )}
-                                {activeSection === "quotations" && record.status === "finalizada_fallida" && (
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openFailureDetailModal(record);
-                                    }}
-                                    className="inline-flex items-center justify-center gap-1 rounded-full border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
-                                    title="Ver detalle de falla (PRO)"
-                                    aria-label="Ver detalle de falla (PRO)"
-                                  >
-                                    {isProEnabled ? <AlertTriangle size={14} /> : <Lock size={14} />}
-                                    Falla
-                                  </button>
-                                )}
+                                {!isReportView &&
+                                  activeSection === "quotations" &&
+                                  (record.status === "cotizada" ||
+                                    record.status === "finalizada_ok" ||
+                                    record.status === "finalizada_fallida") && (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        duplicateQuotation(record.id);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                      aria-label="Duplicar cotización"
+                                      title="Duplicar cotización"
+                                    >
+                                      <Copy size={18} />
+                                    </button>
+                                  )}
                                 {!isReportView && record.status === "cotizada" && (
                                   <>
                                     <button
@@ -4419,6 +4603,38 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                                       <Copy size={18} />
                                     </button>
                                   )}
+                                {!isReportView &&
+                                  activeSection === "production" &&
+                                  record.status === "finalizada_fallida" && (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openFailureDetailModal(record);
+                                      }}
+                                      className="inline-flex items-center justify-center gap-1 rounded-full border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                      title="Ver detalle de falla (PRO)"
+                                      aria-label="Ver detalle de falla (PRO)"
+                                    >
+                                      {canAdvancedMetrics ? <AlertTriangle size={14} /> : <Lock size={14} />}
+                                      Falla
+                                    </button>
+                                  )}
+                                {isReportView && record.status === "finalizada_fallida" && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openFailureDetailModal(record);
+                                    }}
+                                    className="inline-flex items-center justify-center gap-1 rounded-full border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-600 hover:bg-amber-50 transition-colors"
+                                    title="Ver detalle de falla (PRO)"
+                                    aria-label="Ver detalle de falla (PRO)"
+                                  >
+                                    {canAdvancedMetrics ? <AlertTriangle size={14} /> : <Lock size={14} />}
+                                    Falla
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </motion.tr>
@@ -5297,32 +5513,32 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">PRO</span>
               </div>
 
-              {isProEnabled && !hasProfitabilityData ? (
+              {canAdvancedMetrics && !hasProfitabilityData ? (
                 <div className="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-6 text-center text-sm text-gray-500">
                   Guardá tu primera cotización para ver el análisis.
                 </div>
               ) : (
-                <div className={`mt-6 space-y-6 ${isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
+                <div className={`mt-6 space-y-6 ${canAdvancedMetrics ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Ganancia total</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
-                        {isProEnabled ? formatCurrency(totalRentabilidadGanancia) : "—"}
+                        {canAdvancedMetrics ? formatCurrency(totalRentabilidadGanancia) : "—"}
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Margen promedio</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
-                        {isProEnabled ? formatPercent(averageRentabilidadMargin) : "—"}
+                        {canAdvancedMetrics ? formatPercent(averageRentabilidadMargin) : "—"}
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Producto más rentable</p>
                       <p className="mt-2 text-lg font-semibold text-gray-800">
-                        {isProEnabled ? rentabilidadMostProfitable?.productName || "—" : "—"}
+                        {canAdvancedMetrics ? rentabilidadMostProfitable?.productName || "—" : "—"}
                       </p>
                       <p className="text-sm text-gray-500">
-                        {isProEnabled && rentabilidadMostProfitable
+                        {canAdvancedMetrics && rentabilidadMostProfitable
                           ? formatCurrency(rentabilidadMostProfitable.profit)
                           : "—"}
                       </p>
@@ -5333,7 +5549,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por ganancia</h3>
                       <div className="space-y-3 text-sm">
-                        {(isProEnabled ? topByProfit : previewTopByProfit).map((item) => (
+                        {(canAdvancedMetrics ? topByProfit : previewTopByProfit).map((item) => (
                           <div key={item.key} className="flex items-center justify-between">
                             <div>
                               <p className="font-semibold text-gray-800">{item.productName}</p>
@@ -5341,10 +5557,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </div>
                             <div className="text-right">
                               <p className="font-semibold text-gray-800">
-                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(item.profit) : "—"}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {isProEnabled ? formatPercent(item.margin) : "—"}
+                                {canAdvancedMetrics ? formatPercent(item.margin) : "—"}
                               </p>
                             </div>
                           </div>
@@ -5354,7 +5570,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
                       <h3 className="text-sm font-semibold text-gray-700 mb-3">Top por margen</h3>
                       <div className="space-y-3 text-sm">
-                        {(isProEnabled ? topByMargin : previewTopByMargin).map((item) => (
+                        {(canAdvancedMetrics ? topByMargin : previewTopByMargin).map((item) => (
                           <div key={item.key} className="flex items-center justify-between">
                             <div>
                               <p className="font-semibold text-gray-800">{item.productName}</p>
@@ -5362,10 +5578,10 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                             </div>
                             <div className="text-right">
                               <p className="font-semibold text-gray-800">
-                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(item.profit) : "—"}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {isProEnabled ? formatPercent(item.margin) : "—"}
+                                {canAdvancedMetrics ? formatPercent(item.margin) : "—"}
                               </p>
                             </div>
                           </div>
@@ -5388,16 +5604,16 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                           </tr>
                         </thead>
                         <tbody>
-                          {(isProEnabled ? recentQuotes : previewRecentQuotes).map((item) => (
+                          {(canAdvancedMetrics ? recentQuotes : previewRecentQuotes).map((item) => (
                             <tr key={item.id} className="border-t border-gray-200">
                               <td className="py-2 text-gray-600">{item.date}</td>
                               <td className="py-2 font-semibold text-gray-800">{item.productName}</td>
                               <td className="py-2 text-gray-600">{item.category}</td>
                               <td className="py-2 text-right text-gray-700">
-                                {isProEnabled ? formatCurrency(item.revenue) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(item.revenue) : "—"}
                               </td>
                               <td className="py-2 text-right text-gray-700">
-                                {isProEnabled ? formatCurrency(item.profit) : "—"}
+                                {canAdvancedMetrics ? formatCurrency(item.profit) : "—"}
                               </td>
                             </tr>
                           ))}
@@ -5408,7 +5624,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </div>
               )}
 
-              {!isProEnabled && (
+              {!canAdvancedMetrics && (
                 <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
                   <div className="text-center px-6">
                     <p className="text-sm text-gray-600 mb-4">
@@ -5451,7 +5667,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </span>
               </div>
 
-              <div className={`mt-6 ${isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
+              <div className={`mt-6 ${canAdvancedMetrics ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
                 <div className="grid lg:grid-cols-[1.4fr_0.8fr] gap-6">
                   <div className="space-y-6">
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
@@ -5616,7 +5832,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </div>
               </div>
 
-              {!isProEnabled && (
+              {!canAdvancedMetrics && (
                 <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
                   <div className="text-center px-6">
                     <p className="text-sm text-gray-600 mb-4">
@@ -5653,7 +5869,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
 
               <div
                 className={`mt-6 grid md:grid-cols-2 gap-6 ${
-                  BRANDING_ACTIVO || isProEnabled ? "" : "blur-sm opacity-60 pointer-events-none"
+                  canBranding ? "" : "blur-sm opacity-60 pointer-events-none"
                 }`}
               >
                 <div className="space-y-4">
@@ -5782,7 +5998,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
                 </div>
               </div>
 
-              {!BRANDING_ACTIVO && !isProEnabled && (
+              {!canBranding && (
                 <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
                   <div className="text-center px-6">
                     <p className="text-sm text-gray-600 mb-4">
@@ -6378,7 +6594,7 @@ function Dashboard({ onOpenProModal }: DashboardProps) {
               {failureDetailTarget.productName || failureDetailTarget.name || "Producto"} · {failureDetailTarget.date}
             </p>
 
-            {!isProEnabled ? (
+            {!canAdvancedMetrics ? (
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                 <p className="font-semibold text-slate-800">Detalle de fallas PRO</p>
                 <p className="mt-2">
