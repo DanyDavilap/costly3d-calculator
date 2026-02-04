@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { track } from "@vercel/analytics";
 import { Toaster } from "sonner";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import DebugAnalyticsPanel, { debugTrack } from "./components/DebugAnalyticsPanel";
 import Dashboard from "./pages/Dashboard/Dashboard";
 import Landing from "./pages/Landing/Landing";
@@ -13,7 +13,8 @@ import Reportes from "./pages/Reportes/Reportes";
 import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
-import { useAuth } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { isAuthConfigured } from "./services/auth";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 
@@ -26,8 +27,8 @@ export default function App() {
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const devMode = isDev();
-  const { status, gateStatus, profile, clearGate, logout } = useAuth();
   const navigate = useNavigate();
+  const authConfigured = isAuthConfigured || import.meta.env.DEV === true;
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -269,58 +270,55 @@ export default function App() {
     </div>
   );
 
-  const MisconfiguredScreen = () => (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <Card className="max-w-md w-full text-center">
-        <h1 className="text-xl font-bold text-slate-900">Configuracion incompleta</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Falta configurar la autenticacion para habilitar la beta cerrada.
-        </p>
-      </Card>
-    </div>
-  );
-
-  const BetaFullScreen = () => (
+  const BetaFullScreen = ({ onBack }: { onBack: () => void }) => (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
       <Card className="max-w-md w-full text-center">
         <h1 className="text-xl font-bold text-slate-900">Cupo beta completo</h1>
         <p className="mt-2 text-sm text-slate-500">
           La beta cerrada ya esta completa. Sumate a la lista de espera.
         </p>
-        <Button
-          onClick={() => {
-            clearGate();
-            navigate("/");
-          }}
-          className="mt-5 w-full"
-        >
+        <Button onClick={onBack} className="mt-5 w-full">
           Volver
         </Button>
       </Card>
     </div>
   );
 
-  const ExpiredScreen = () => (
+  const ExpiredScreen = ({ onLogout }: { onLogout: () => void }) => (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
       <Card className="max-w-md w-full text-center">
         <h1 className="text-xl font-bold text-slate-900">Acceso beta finalizado</h1>
         <p className="mt-2 text-sm text-slate-500">
           Tu acceso beta ha finalizado. Gracias por probar Costly3D.
         </p>
-        <Button onClick={logout} className="mt-5 w-full">
+        <Button onClick={onLogout} className="mt-5 w-full">
           Salir
         </Button>
       </Card>
     </div>
   );
 
-  const ErrorScreen = () => (
+  const ErrorScreen = ({ onRetry }: { onRetry: () => void }) => (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
       <Card className="max-w-md w-full text-center">
         <h1 className="text-xl font-bold text-slate-900">No pudimos validar tu acceso</h1>
         <p className="mt-2 text-sm text-slate-500">Intentá ingresar nuevamente en unos minutos.</p>
-        <Button onClick={logout} className="mt-5 w-full">
+        <Button onClick={onRetry} className="mt-5 w-full">
           Volver a intentar
+        </Button>
+      </Card>
+    </div>
+  );
+
+  const BetaInfoScreen = () => (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <Card className="max-w-md w-full text-center">
+        <h1 className="text-xl font-bold text-slate-900">Beta cerrada no habilitada</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          La beta cerrada aun no esta habilitada. Sumate para recibir acceso.
+        </p>
+        <Button onClick={() => navigate("/")} className="mt-5 w-full">
+          Volver a la landing
         </Button>
       </Card>
     </div>
@@ -328,10 +326,11 @@ export default function App() {
 
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
     const location = useLocation();
+    const { status, logout } = useAuth();
     if (status === "loading") return <LoadingScreen />;
-    if (status === "misconfigured") return <MisconfiguredScreen />;
-    if (status === "beta_expired") return <ExpiredScreen />;
-    if (status === "error") return <ErrorScreen />;
+    if (status === "misconfigured") return <BetaInfoScreen />;
+    if (status === "beta_expired") return <ExpiredScreen onLogout={logout} />;
+    if (status === "error") return <ErrorScreen onRetry={logout} />;
     if (status === "unauthenticated") {
       return <Navigate to="/login" state={{ from: location }} replace />;
     }
@@ -340,15 +339,46 @@ export default function App() {
 
   const LoginRoute = () => {
     const location = useLocation();
+    const { status, gateStatus, clearGate } = useAuth();
+    if (status === "misconfigured") {
+      return <BetaInfoScreen />;
+    }
     if (status === "authenticated") {
       const fromPath =
         (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/app";
       return <Navigate to={fromPath} replace />;
     }
     if (gateStatus === "beta_full") {
-      return <BetaFullScreen />;
+      return (
+        <BetaFullScreen
+          onBack={() => {
+            clearGate();
+            navigate("/");
+          }}
+        />
+      );
     }
     return <Login />;
+  };
+
+  const DashboardRoute = () => {
+    const { profile } = useAuth();
+    return (
+      <RequireAuth>
+        <Dashboard onOpenProModal={openProModal} access={profile ?? undefined} />
+      </RequireAuth>
+    );
+  };
+
+  const AuthLayout = () => {
+    if (!authConfigured) {
+      return <BetaInfoScreen />;
+    }
+    return (
+      <AuthProvider>
+        <Outlet />
+      </AuthProvider>
+    );
   };
 
   return (
@@ -358,65 +388,72 @@ export default function App() {
       <Routes>
         <Route
           path="/"
-          element={<Landing onStart={() => navigate("/app")} onOpenProModal={() => openProModal("cta")} />}
-        />
-        <Route path="/login" element={<LoginRoute />} />
-        <Route
-          path="/app/*"
           element={
-            <RequireAuth>
-              <Dashboard onOpenProModal={openProModal} access={profile ?? undefined} />
-            </RequireAuth>
+            <Landing
+              onStart={() => {
+                if (!authConfigured) {
+                  navigate("/beta-info");
+                  return;
+                }
+                navigate("/app");
+              }}
+              onOpenProModal={() => openProModal("cta")}
+            />
           }
         />
-        <Route
-          path="/items"
-          element={
-            <RequireAuth>
-              <Items />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/faltantes"
-          element={
-            <RequireAuth>
-              <Faltantes />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/reportes"
-          element={
-            <RequireAuth>
-              <Reportes />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/configuracion"
-          element={
-            <RequireAuth>
-              <Configuracion />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/wiki"
-          element={
-            <RequireAuth>
-              <Wiki />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <RequireAuth>
-              <Navigate to="/app" replace />
-            </RequireAuth>
-          }
-        />
+        <Route path="/beta-info" element={<BetaInfoScreen />} />
+        <Route element={<AuthLayout />}>
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/app/*" element={<DashboardRoute />} />
+          <Route
+            path="/items"
+            element={
+              <RequireAuth>
+                <Items />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/faltantes"
+            element={
+              <RequireAuth>
+                <Faltantes />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/reportes"
+            element={
+              <RequireAuth>
+                <Reportes />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/configuracion"
+            element={
+              <RequireAuth>
+                <Configuracion />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/wiki"
+            element={
+              <RequireAuth>
+                <Wiki />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <Navigate to="/app" replace />
+              </RequireAuth>
+            }
+          />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Analytics />
