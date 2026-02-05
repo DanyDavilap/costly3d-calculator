@@ -15,6 +15,7 @@ import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { isAuthConfigured } from "./services/auth";
+import { sendBetaWaitlistEmail } from "./services/waitlist";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 
@@ -27,7 +28,6 @@ export default function App() {
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";
-  const BETA_WAITLIST_ENDPOINT = "https://dqkygjogfxdlosktvmah.supabase.co/functions/v1/beta_waitlistv2";
   const showProFlows = false; // TODO: reactivar flujo PRO cuando corresponda.
   const devMode = isDev();
   const navigate = useNavigate();
@@ -324,48 +324,31 @@ export default function App() {
       }
       setError("");
       setStatus("submitting");
-      try {
-        const response = await fetch(BETA_WAITLIST_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email: trimmed }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          setStatus("idle");
-          setError("No pudimos enviar la solicitud. Intentá de nuevo.");
-          return;
+      const result = await sendBetaWaitlistEmail(trimmed);
+      if (result.status === "registered") {
+        try {
+          // Guardamos el email para evitar multiples envios en la misma sesion.
+          sessionStorage.setItem(
+            BETA_WAITLIST_KEY,
+            JSON.stringify({
+              email: trimmed,
+              createdAt: new Date().toISOString(),
+              source: "landing_beta_closed",
+            }),
+          );
+        } catch (storageError) {
+          // Ignore storage errors to avoid blocking the UI.
         }
-        if (data?.registered === true) {
-          try {
-            // Guardamos el email para evitar multiples envios en la misma sesion.
-            sessionStorage.setItem(
-              BETA_WAITLIST_KEY,
-              JSON.stringify({
-                email: trimmed,
-                createdAt: new Date().toISOString(),
-                source: "landing_beta_closed",
-              }),
-            );
-          } catch (storageError) {
-            // Ignore storage errors to avoid blocking the UI.
-          }
-          setStatus("success");
-          return;
-        }
-        if (data?.alreadyRegistered === true) {
-          setStatus("idle");
-          setError("email already registered");
-          return;
-        }
-        setStatus("idle");
-        setError("No pudimos enviar la solicitud. Intentá de nuevo.");
-      } catch (error) {
-        setStatus("idle");
-        setError("No pudimos enviar la solicitud. Intentá de nuevo.");
+        setStatus("success");
+        return;
       }
+      if (result.status === "already_registered") {
+        setStatus("idle");
+        setError("email already registered");
+        return;
+      }
+      setStatus("idle");
+      setError(result.message || "No pudimos enviar la solicitud. Intentá de nuevo.");
     };
 
     const isLocked = status === "submitting" || status === "success";
@@ -607,4 +590,6 @@ export default function App() {
     </>
   );
 }
+
+
 

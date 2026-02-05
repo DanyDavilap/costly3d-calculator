@@ -30,59 +30,15 @@ export type BetaProfile = {
   features?: RawFeatureFlags | null;
 };
 
-export type BetaAccessResult =
-  | { status: "granted" | "exists"; message?: string }
-  | { status: "full" | "waitlist"; message?: string }
-  | { status: "error"; message: string };
-
-export type BetaAccessIntent = "login" | "signup";
-
 export type BetaProfileResult =
   | { status: "active"; profile: BetaProfile }
   | { status: "expired"; profile?: BetaProfile }
-  | { status: "error"; message: string };
-
-export type BetaWaitlistPayload = {
-  email: string;
-  source?: string;
-  beta_status?: "open" | "full";
-};
-
-export type BetaWaitlistResult =
-  | { status: "sent" }
   | { status: "error"; message: string };
 
 const resolveRedirectTo = () => {
   if (typeof window === "undefined") return undefined;
   return `${window.location.origin}/app`;
 };
-
-export async function requestBetaAccess(
-  email: string,
-  intent: BetaAccessIntent = "signup",
-): Promise<BetaAccessResult> {
-  if (!supabase) {
-    return { status: "error", message: "Configuración de autenticación incompleta." };
-  }
-  try {
-    const { data, error } = await supabase.functions.invoke("beta-access", {
-      body: { email, intent },
-    });
-    if (error) {
-      return { status: "error", message: error.message };
-    }
-    const status = (data as { status?: string; message?: string } | null)?.status ?? "error";
-    if (status === "full" || status === "waitlist") {
-      return { status, message: (data as { message?: string })?.message };
-    }
-    if (status === "granted" || status === "exists") {
-      return { status, message: (data as { message?: string })?.message };
-    }
-    return { status: "error", message: "No pudimos validar el acceso beta." };
-  } catch (error) {
-    return { status: "error", message: "No pudimos validar el acceso beta." };
-  }
-}
 
 export async function sendMagicLink(email: string) {
   if (!supabase) {
@@ -115,33 +71,6 @@ export async function fetchBetaProfile(): Promise<BetaProfileResult> {
     return { status: "error", message: "No pudimos validar tu acceso." };
   } catch (error) {
     return { status: "error", message: "No pudimos validar tu acceso." };
-  }
-}
-
-export async function sendBetaWaitlist(payload: BetaWaitlistPayload): Promise<BetaWaitlistResult> {
-  if (!supabase) {
-    return {
-      status: "error",
-      message: "La beta cerrada aun no esta habilitada. Intenta de nuevo mas tarde.",
-    };
-  }
-  try {
-    const { data, error } = await supabase.functions.invoke("beta-waitlist", {
-      body: payload,
-    });
-    if (error) {
-      return { status: "error", message: error.message };
-    }
-    const status = (data as { status?: string; message?: string } | null)?.status ?? "error";
-    if (status === "sent" || status === "ok") {
-      return { status: "sent" };
-    }
-    return {
-      status: "error",
-      message: (data as { message?: string } | null)?.message ?? "No pudimos enviar la solicitud.",
-    };
-  } catch (error) {
-    return { status: "error", message: "No pudimos enviar la solicitud." };
   }
 }
 

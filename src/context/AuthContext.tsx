@@ -5,7 +5,6 @@ import {
   getSession,
   isAuthConfigured,
   markUserVerified,
-  requestBetaAccess,
   sendMagicLink,
   signOut,
   supabase,
@@ -191,14 +190,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus("authenticated");
       setProfile(DEV_PROFILE);
       return { status: "link_sent" };
-    }
-    const access = await requestBetaAccess(email, "login");
-    if (access.status === "full" || access.status === "waitlist") {
-      setGateStatus("beta_full");
-      return { status: "beta_full", message: access.message };
-    }
-    if (access.status === "error") {
-      return { status: "error", message: access.message };
     }
     const { error } = await sendMagicLink(email);
     if (error) {
