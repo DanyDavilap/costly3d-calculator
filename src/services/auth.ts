@@ -35,6 +35,8 @@ export type BetaAccessResult =
   | { status: "full" | "waitlist"; message?: string }
   | { status: "error"; message: string };
 
+export type BetaAccessIntent = "login" | "signup";
+
 export type BetaProfileResult =
   | { status: "active"; profile: BetaProfile }
   | { status: "expired"; profile?: BetaProfile }
@@ -55,13 +57,16 @@ const resolveRedirectTo = () => {
   return `${window.location.origin}/app`;
 };
 
-export async function requestBetaAccess(email: string): Promise<BetaAccessResult> {
+export async function requestBetaAccess(
+  email: string,
+  intent: BetaAccessIntent = "signup",
+): Promise<BetaAccessResult> {
   if (!supabase) {
     return { status: "error", message: "Configuración de autenticación incompleta." };
   }
   try {
     const { data, error } = await supabase.functions.invoke("beta-access", {
-      body: { email },
+      body: { email, intent },
     });
     if (error) {
       return { status: "error", message: error.message };
@@ -157,3 +162,5 @@ export async function getSession(): Promise<Session | null> {
   const { data } = await supabase.auth.getSession();
   return data.session ?? null;
 }
+
+

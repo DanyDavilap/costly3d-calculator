@@ -50,8 +50,8 @@ serve(async (req) => {
     return jsonResponse({ error: "Missing RESEND_API_KEY" }, 500);
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = Deno.env.get("SB_URL");
+  const serviceRoleKey = Deno.env.get("SB_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
     return jsonResponse({ error: "Missing Supabase service credentials" }, 500);
   }

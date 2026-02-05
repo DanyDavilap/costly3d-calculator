@@ -192,7 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(DEV_PROFILE);
       return { status: "link_sent" };
     }
-    const access = await requestBetaAccess(email);
+    const access = await requestBetaAccess(email, "login");
     if (access.status === "full" || access.status === "waitlist") {
       setGateStatus("beta_full");
       return { status: "beta_full", message: access.message };
