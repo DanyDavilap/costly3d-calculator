@@ -3,7 +3,7 @@ export type BetaWaitlistResult =
   | { status: "already_registered" }
   | { status: "error"; message: string };
 
-const BETA_WAITLIST_ENDPOINT = "https://dqkygjogfxdlosktvmah.supabase.co/functions/v1/beta_waitlistv2";
+const BETA_WAITLIST_ENDPOINT = "/functions/v1/beta_waitlistv2";
 
 export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlistResult> {
   try {

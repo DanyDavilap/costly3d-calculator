@@ -344,7 +344,7 @@ export default function App() {
       }
       if (result.status === "already_registered") {
         setStatus("idle");
-        setError("email already registered");
+        setError("ya estás anotado");
         return;
       }
       setStatus("idle");
