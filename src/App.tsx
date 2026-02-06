@@ -27,7 +27,6 @@ export default function App() {
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
   const waitlistTimerRef = useRef<number | null>(null);
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
-  const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";
   const showProFlows = false; // TODO: reactivar flujo PRO cuando corresponda.
   const devMode = isDev();
   const navigate = useNavigate();
@@ -282,31 +281,7 @@ export default function App() {
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
     const [error, setError] = useState("");
-    const [successMessage, setSuccessMessage] = useState("");
     const [betaStatus, setBetaStatus] = useState<BetaStatus>(initialStatus);
-    const readWaitlistCache = () => {
-      try {
-        const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
-        if (!saved) return null;
-        return JSON.parse(saved) as { email?: string; status?: "registered" | "already_registered" } | null;
-      } catch (storageError) {
-        return null;
-      }
-    };
-
-    useEffect(() => {
-      // Restauramos el email guardado para evitar envíos múltiples en la sesión.
-      const cached = readWaitlistCache();
-      const savedEmail = typeof cached?.email === "string" ? cached.email : "";
-      if (!savedEmail) return;
-      setEmail(savedEmail);
-      if (cached?.status === "already_registered") {
-        setError("Este correo ya fue registrado previamente.");
-        return;
-      }
-      setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
-      setStatus("success");
-    }, []);
 
     useEffect(() => {
       setBetaStatus(initialStatus);
@@ -319,64 +294,29 @@ export default function App() {
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (status !== "idle") return;
       const trimmed = email.trim();
-      const cached = readWaitlistCache();
-      if (cached?.email === trimmed) {
-        setError("Este correo ya fue registrado previamente.");
-        return;
-      }
       if (!isValidEmail(trimmed)) {
         setError("Ingresá un email válido.");
         return;
       }
-      setError("");
-      setSuccessMessage("");
       setStatus("submitting");
-      try {
-        const result = await sendBetaWaitlistEmail(trimmed);
-        if (result.status === "registered") {
-          try {
-            // Guardamos el email para evitar multiples envios en la misma sesion.
-            sessionStorage.setItem(
-              BETA_WAITLIST_KEY,
-              JSON.stringify({
-                email: trimmed,
-                status: "registered",
-                createdAt: new Date().toISOString(),
-                source: "landing_beta_closed",
-              }),
-            );
-          } catch (storageError) {
-            // Ignore storage errors to avoid blocking the UI.
-          }
-          setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
-          setStatus("success");
-          return;
-        }
-        if (result.status === "already_registered") {
-          try {
-            sessionStorage.setItem(
-              BETA_WAITLIST_KEY,
-              JSON.stringify({
-                email: trimmed,
-                status: "already_registered",
-                createdAt: new Date().toISOString(),
-                source: "landing_beta_closed",
-              }),
-            );
-          } catch (storageError) {
-            // Ignore storage errors to avoid blocking the UI.
-          }
-          setStatus("idle");
-          setError("Este correo ya fue registrado previamente.");
-          return;
-        }
-        setStatus("idle");
-        setError("Hubo un error. Intentá nuevamente.");
-      } finally {
-        if (status === "submitting") setStatus("idle");
+      const result = await sendBetaWaitlistEmail(trimmed);
+
+      if (result === "ok") {
+        sessionStorage.setItem("beta_waitlist_email", trimmed);
+        setStatus("success");
+        setError("");
+        return;
       }
+
+      if (result === "exists") {
+        setStatus("idle");
+        setError("Este correo ya fue registrado previamente.");
+        return;
+      }
+
+      setStatus("idle");
+      setError("Hubo un error. Intentá nuevamente.");
     };
 
     const isLocked = status === "submitting" || status === "success";
@@ -429,7 +369,7 @@ export default function App() {
             )}
             {status === "success" && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {successMessage || "Correo registrado. Te contactaremos si quedás dentro de la beta."}
+                Correo registrado. Te contactaremos si quedás dentro de la beta.
               </div>
             )}
             <Button type="submit" className="w-full" disabled={isLocked}>
