@@ -1,12 +1,14 @@
-export type BetaWaitlistResult =
-  | { status: "registered" }
-  | { status: "already_registered" }
-  | { status: "error"; message: string };
+export type BetaWaitlistResponse = {
+  ok: boolean;
+  registered?: boolean;
+  alreadyRegistered?: boolean;
+  error?: string;
+};
 
-const BETA_WAITLIST_ENDPOINT = "/functions/v1/beta_waitlistv2";
-const GENERIC_ERROR_MESSAGE = "Hubo un error. Intentá nuevamente.";
+const BETA_WAITLIST_ENDPOINT = "/functions/v1/beta_waitlist";
 
-export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlistResult> {
+export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlistResponse> {
+  // Solo envía el email al Edge Function y devuelve el JSON recibido.
   try {
     const response = await fetch(BETA_WAITLIST_ENDPOINT, {
       method: "POST",
@@ -16,17 +18,8 @@ export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlist
       body: JSON.stringify({ email }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok || data?.ok !== true) {
-      return { status: "error", message: GENERIC_ERROR_MESSAGE };
-    }
-    if (data?.registered === true) {
-      return { status: "registered" };
-    }
-    if (data?.alreadyRegistered === true) {
-      return { status: "already_registered" };
-    }
-    return { status: "error", message: GENERIC_ERROR_MESSAGE };
+    return (data ?? { ok: false, error: "Hubo un error. Intentá nuevamente." }) as BetaWaitlistResponse;
   } catch (error) {
-    return { status: "error", message: GENERIC_ERROR_MESSAGE };
+    return { ok: false, error: "Hubo un error. Intentá nuevamente." };
   }
 }

@@ -10,27 +10,39 @@ export default function Login() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-
-  useEffect(() => {
+  const readWaitlistCache = () => {
     try {
       const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as { email?: string } | null;
-      const savedEmail = typeof parsed?.email === "string" ? parsed.email : saved;
-      if (savedEmail) {
-        setEmail(savedEmail);
-        setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
-        setStatus("success");
-      }
+      if (!saved) return null;
+      return JSON.parse(saved) as { email?: string; status?: "registered" | "already_registered" } | null;
     } catch (storageError) {
-      // Ignore storage errors to avoid blocking the UI.
+      return null;
     }
+  };
+
+  useEffect(() => {
+    // Restauramos el email guardado para evitar envíos múltiples en la sesión.
+    const cached = readWaitlistCache();
+    const savedEmail = typeof cached?.email === "string" ? cached.email : "";
+    if (!savedEmail) return;
+    setEmail(savedEmail);
+    if (cached?.status === "already_registered") {
+      setError("Este correo ya fue registrado previamente.");
+      return;
+    }
+    setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+    setStatus("success");
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (status !== "idle") return;
     const trimmed = email.trim();
+    const cached = readWaitlistCache();
+    if (cached?.email === trimmed) {
+      setError("Este correo ya fue registrado previamente.");
+      return;
+    }
     if (!isValidEmail(trimmed)) {
       setError("Ingresá un email válido.");
       return;
@@ -39,12 +51,13 @@ export default function Login() {
     setSuccessMessage("");
     setStatus("submitting");
     const result = await sendBetaWaitlistEmail(trimmed);
-    if (result.status === "registered") {
+    if (result?.ok && result.registered) {
       try {
         sessionStorage.setItem(
           BETA_WAITLIST_KEY,
           JSON.stringify({
             email: trimmed,
+            status: "registered",
             createdAt: new Date().toISOString(),
             source: "login_waitlist",
           }),
@@ -56,7 +69,20 @@ export default function Login() {
       setStatus("success");
       return;
     }
-    if (result.status === "already_registered") {
+    if (result?.ok && result.alreadyRegistered) {
+      try {
+        sessionStorage.setItem(
+          BETA_WAITLIST_KEY,
+          JSON.stringify({
+            email: trimmed,
+            status: "already_registered",
+            createdAt: new Date().toISOString(),
+            source: "login_waitlist",
+          }),
+        );
+      } catch (storageError) {
+        // Ignore storage errors to avoid blocking the UI.
+      }
       setStatus("idle");
       setError("Este correo ya fue registrado previamente.");
       return;
@@ -95,7 +121,7 @@ export default function Login() {
             </div>
           )}
           <Button type="submit" className="w-full" disabled={status === "submitting" || status === "success"}>
-            {status === "submitting" ? "Enviando..." : "Enviar"}
+            {status === "submitting" ? "Enviando…" : "Enviar"}
           </Button>
         </form>
       </Card>

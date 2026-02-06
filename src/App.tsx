@@ -278,33 +278,34 @@ export default function App() {
   type BetaStatus = "open" | "full";
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-  const BetaClosedScreen = ({
-    onBack,
-    initialStatus = "open",
-  }: {
-    onBack: () => void;
-    initialStatus?: BetaStatus;
-  }) => {
+  const BetaClosedScreen = ({ initialStatus = "open" }: { initialStatus?: BetaStatus }) => {
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
     const [error, setError] = useState("");
     const [successMessage, setSuccessMessage] = useState("");
     const [betaStatus, setBetaStatus] = useState<BetaStatus>(initialStatus);
-
-    useEffect(() => {
+    const readWaitlistCache = () => {
       try {
         const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
-        if (!saved) return;
-        const parsed = JSON.parse(saved) as { email?: string } | null;
-        const savedEmail = typeof parsed?.email === "string" ? parsed.email : saved;
-        if (savedEmail) {
-          setEmail(savedEmail);
-          setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
-          setStatus("success");
-        }
+        if (!saved) return null;
+        return JSON.parse(saved) as { email?: string; status?: "registered" | "already_registered" } | null;
       } catch (storageError) {
-        // Ignore storage errors to avoid blocking the UI.
+        return null;
       }
+    };
+
+    useEffect(() => {
+      // Restauramos el email guardado para evitar envíos múltiples en la sesión.
+      const cached = readWaitlistCache();
+      const savedEmail = typeof cached?.email === "string" ? cached.email : "";
+      if (!savedEmail) return;
+      setEmail(savedEmail);
+      if (cached?.status === "already_registered") {
+        setError("Este correo ya fue registrado previamente.");
+        return;
+      }
+      setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+      setStatus("success");
     }, []);
 
     useEffect(() => {
@@ -320,6 +321,11 @@ export default function App() {
       event.preventDefault();
       if (status !== "idle") return;
       const trimmed = email.trim();
+      const cached = readWaitlistCache();
+      if (cached?.email === trimmed) {
+        setError("Este correo ya fue registrado previamente.");
+        return;
+      }
       if (!isValidEmail(trimmed)) {
         setError("Ingresá un email válido.");
         return;
@@ -328,13 +334,14 @@ export default function App() {
       setSuccessMessage("");
       setStatus("submitting");
       const result = await sendBetaWaitlistEmail(trimmed);
-      if (result.status === "registered") {
+      if (result?.ok && result.registered) {
         try {
           // Guardamos el email para evitar multiples envios en la misma sesion.
           sessionStorage.setItem(
             BETA_WAITLIST_KEY,
             JSON.stringify({
               email: trimmed,
+              status: "registered",
               createdAt: new Date().toISOString(),
               source: "landing_beta_closed",
             }),
@@ -346,7 +353,20 @@ export default function App() {
         setStatus("success");
         return;
       }
-      if (result.status === "already_registered") {
+      if (result?.ok && result.alreadyRegistered) {
+        try {
+          sessionStorage.setItem(
+            BETA_WAITLIST_KEY,
+            JSON.stringify({
+              email: trimmed,
+              status: "already_registered",
+              createdAt: new Date().toISOString(),
+              source: "landing_beta_closed",
+            }),
+          );
+        } catch (storageError) {
+          // Ignore storage errors to avoid blocking the UI.
+        }
         setStatus("idle");
         setError("Este correo ya fue registrado previamente.");
         return;
@@ -358,7 +378,7 @@ export default function App() {
     const isLocked = status === "submitting" || status === "success";
     const primaryLabel =
       status === "submitting"
-        ? "Enviando..."
+        ? "Enviando…"
         : status === "success"
           ? betaStatus === "open"
             ? "Solicitud enviada"
@@ -411,9 +431,6 @@ export default function App() {
             <Button type="submit" className="w-full" disabled={isLocked}>
               {primaryLabel}
             </Button>
-            <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
-              Volver a la landing
-            </Button>
           </form>
         </Card>
       </div>
@@ -446,7 +463,7 @@ export default function App() {
     </div>
   );
 
-  const BetaInfoScreen = () => <BetaClosedScreen onBack={() => navigate("/")} initialStatus="open" />;
+  const BetaInfoScreen = () => <BetaClosedScreen initialStatus="open" />;
 
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
     const location = useLocation();
@@ -463,7 +480,7 @@ export default function App() {
 
   const LoginRoute = () => {
     const location = useLocation();
-    const { status, gateStatus, clearGate } = useAuth();
+    const { status, gateStatus } = useAuth();
     if (status === "misconfigured") {
       return <BetaInfoScreen />;
     }
@@ -475,10 +492,6 @@ export default function App() {
     if (gateStatus === "beta_full") {
       return (
         <BetaClosedScreen
-          onBack={() => {
-            clearGate();
-            navigate("/");
-          }}
           initialStatus="full"
         />
       );
@@ -586,5 +599,3 @@ export default function App() {
     </>
   );
 }
-
-
