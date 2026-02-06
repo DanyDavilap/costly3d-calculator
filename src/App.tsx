@@ -288,6 +288,7 @@ export default function App() {
     const [email, setEmail] = useState("");
     const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
     const [error, setError] = useState("");
+    const [successMessage, setSuccessMessage] = useState("");
     const [betaStatus, setBetaStatus] = useState<BetaStatus>(initialStatus);
 
     useEffect(() => {
@@ -298,6 +299,7 @@ export default function App() {
         const savedEmail = typeof parsed?.email === "string" ? parsed.email : saved;
         if (savedEmail) {
           setEmail(savedEmail);
+          setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
           setStatus("success");
         }
       } catch (storageError) {
@@ -323,6 +325,7 @@ export default function App() {
         return;
       }
       setError("");
+      setSuccessMessage("");
       setStatus("submitting");
       const result = await sendBetaWaitlistEmail(trimmed);
       if (result.status === "registered") {
@@ -339,16 +342,17 @@ export default function App() {
         } catch (storageError) {
           // Ignore storage errors to avoid blocking the UI.
         }
+        setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
         setStatus("success");
         return;
       }
       if (result.status === "already_registered") {
         setStatus("idle");
-        setError("ya estás anotado");
+        setError("Este correo ya fue registrado previamente.");
         return;
       }
       setStatus("idle");
-      setError(result.message || "No pudimos enviar la solicitud. Intentá de nuevo.");
+      setError("Hubo un error. Intentá nuevamente.");
     };
 
     const isLocked = status === "submitting" || status === "success";
@@ -401,15 +405,7 @@ export default function App() {
             )}
             {status === "success" && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {betaStatus === "open" ? (
-                  <>
-                    <p className="font-semibold">Solicitud enviada</p>
-                    <p>Revisamos accesos manualmente.</p>
-                    <p>Si quedas dentro del cupo, te avisamos por mail.</p>
-                  </>
-                ) : (
-                  <>Listo. Te avisaremos cuando haya cupo disponible.</>
-                )}
+                {successMessage || "Correo registrado. Te contactaremos si quedás dentro de la beta."}
               </div>
             )}
             <Button type="submit" className="w-full" disabled={isLocked}>
@@ -590,6 +586,5 @@ export default function App() {
     </>
   );
 }
-
 
 

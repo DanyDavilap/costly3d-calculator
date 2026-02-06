@@ -4,6 +4,7 @@ export type BetaWaitlistResult =
   | { status: "error"; message: string };
 
 const BETA_WAITLIST_ENDPOINT = "/functions/v1/beta_waitlistv2";
+const GENERIC_ERROR_MESSAGE = "Hubo un error. Intentá nuevamente.";
 
 export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlistResult> {
   try {
@@ -15,8 +16,8 @@ export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlist
       body: JSON.stringify({ email }),
     });
     const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      return { status: "error", message: "No pudimos enviar la solicitud. Intentá de nuevo." };
+    if (!response.ok || data?.ok !== true) {
+      return { status: "error", message: GENERIC_ERROR_MESSAGE };
     }
     if (data?.registered === true) {
       return { status: "registered" };
@@ -24,8 +25,8 @@ export async function sendBetaWaitlistEmail(email: string): Promise<BetaWaitlist
     if (data?.alreadyRegistered === true) {
       return { status: "already_registered" };
     }
-    return { status: "error", message: "No pudimos enviar la solicitud. Intentá de nuevo." };
+    return { status: "error", message: GENERIC_ERROR_MESSAGE };
   } catch (error) {
-    return { status: "error", message: "No pudimos enviar la solicitud. Intentá de nuevo." };
+    return { status: "error", message: GENERIC_ERROR_MESSAGE };
   }
 }
