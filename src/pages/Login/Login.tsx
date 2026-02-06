@@ -1,37 +1,68 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
-import { useAuth } from "../../context/AuthContext";
+import { sendBetaWaitlistEmail } from "../../services/waitlist";
 
 export default function Login() {
+  const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [message, setMessage] = useState("");
-  const { loginWithEmail } = useAuth();
+  const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
+  const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as { email?: string } | null;
+      const savedEmail = typeof parsed?.email === "string" ? parsed.email : saved;
+      if (savedEmail) {
+        setEmail(savedEmail);
+        setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+        setStatus("success");
+      }
+    } catch (storageError) {
+      // Ignore storage errors to avoid blocking the UI.
+    }
+  }, []);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim()) return;
-    setStatus("sending");
-    setMessage("");
-    loginWithEmail(email.trim())
-      .then((result) => {
-        if (result.status === "link_sent") {
-          setStatus("sent");
-          setMessage("Listo. Revisa tu correo para ingresar a Costly3D.");
-          return;
-        }
-        if (result.status === "beta_full") {
-          setStatus("idle");
-          return;
-        }
-        setStatus("error");
-        setMessage(result.message);
-      })
-      .catch(() => {
-        setStatus("error");
-        setMessage("No pudimos enviar el acceso. Intenta de nuevo.");
-      });
+    if (status !== "idle") return;
+    const trimmed = email.trim();
+    if (!isValidEmail(trimmed)) {
+      setError("Ingresá un email válido.");
+      return;
+    }
+    setError("");
+    setSuccessMessage("");
+    setStatus("submitting");
+    const result = await sendBetaWaitlistEmail(trimmed);
+    if (result.status === "registered") {
+      try {
+        sessionStorage.setItem(
+          BETA_WAITLIST_KEY,
+          JSON.stringify({
+            email: trimmed,
+            createdAt: new Date().toISOString(),
+            source: "login_waitlist",
+          }),
+        );
+      } catch (storageError) {
+        // Ignore storage errors to avoid blocking the UI.
+      }
+      setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+      setStatus("success");
+      return;
+    }
+    if (result.status === "already_registered") {
+      setStatus("idle");
+      setError("Este correo ya fue registrado previamente.");
+      return;
+    }
+    setStatus("idle");
+    setError("Hubo un error. Intentá nuevamente.");
   };
 
   return (
@@ -50,21 +81,21 @@ export default function Login() {
               onChange={(event) => setEmail(event.target.value)}
               className="w-full rounded-xl border border-slate-200 px-4 py-2"
               placeholder="admin@totys.land"
+              disabled={status === "submitting" || status === "success"}
             />
           </div>
-          {message && (
-            <div
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                status === "error"
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-              }`}
-            >
-              {message}
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
             </div>
           )}
-          <Button type="submit" className="w-full" disabled={status === "sending"}>
-            {status === "sending" ? "Enviando..." : "Enviar link"}
+          {status === "success" && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {successMessage || "Correo registrado. Te contactaremos si quedás dentro de la beta."}
+            </div>
+          )}
+          <Button type="submit" className="w-full" disabled={status === "submitting" || status === "success"}>
+            {status === "submitting" ? "Enviando..." : "Enviar"}
           </Button>
         </form>
       </Card>
