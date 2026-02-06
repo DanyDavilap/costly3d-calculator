@@ -333,46 +333,50 @@ export default function App() {
       setError("");
       setSuccessMessage("");
       setStatus("submitting");
-      const result = await sendBetaWaitlistEmail(trimmed);
-      if (result?.ok && result.registered) {
-        try {
-          // Guardamos el email para evitar multiples envios en la misma sesion.
-          sessionStorage.setItem(
-            BETA_WAITLIST_KEY,
-            JSON.stringify({
-              email: trimmed,
-              status: "registered",
-              createdAt: new Date().toISOString(),
-              source: "landing_beta_closed",
-            }),
-          );
-        } catch (storageError) {
-          // Ignore storage errors to avoid blocking the UI.
+      try {
+        const result = await sendBetaWaitlistEmail(trimmed);
+        if (result.status === "registered") {
+          try {
+            // Guardamos el email para evitar multiples envios en la misma sesion.
+            sessionStorage.setItem(
+              BETA_WAITLIST_KEY,
+              JSON.stringify({
+                email: trimmed,
+                status: "registered",
+                createdAt: new Date().toISOString(),
+                source: "landing_beta_closed",
+              }),
+            );
+          } catch (storageError) {
+            // Ignore storage errors to avoid blocking the UI.
+          }
+          setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+          setStatus("success");
+          return;
         }
-        setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
-        setStatus("success");
-        return;
-      }
-      if (result?.ok && result.alreadyRegistered) {
-        try {
-          sessionStorage.setItem(
-            BETA_WAITLIST_KEY,
-            JSON.stringify({
-              email: trimmed,
-              status: "already_registered",
-              createdAt: new Date().toISOString(),
-              source: "landing_beta_closed",
-            }),
-          );
-        } catch (storageError) {
-          // Ignore storage errors to avoid blocking the UI.
+        if (result.status === "already_registered") {
+          try {
+            sessionStorage.setItem(
+              BETA_WAITLIST_KEY,
+              JSON.stringify({
+                email: trimmed,
+                status: "already_registered",
+                createdAt: new Date().toISOString(),
+                source: "landing_beta_closed",
+              }),
+            );
+          } catch (storageError) {
+            // Ignore storage errors to avoid blocking the UI.
+          }
+          setStatus("idle");
+          setError("Este correo ya fue registrado previamente.");
+          return;
         }
         setStatus("idle");
-        setError("Este correo ya fue registrado previamente.");
-        return;
+        setError("Hubo un error. Intentá nuevamente.");
+      } finally {
+        if (status === "submitting") setStatus("idle");
       }
-      setStatus("idle");
-      setError("Hubo un error. Intentá nuevamente.");
     };
 
     const isLocked = status === "submitting" || status === "success";

@@ -51,7 +51,7 @@ export default function Login() {
     setSuccessMessage("");
     setStatus("submitting");
     const result = await sendBetaWaitlistEmail(trimmed);
-    if (result?.ok && result.registered) {
+    if (result.status === "registered") {
       try {
         sessionStorage.setItem(
           BETA_WAITLIST_KEY,
@@ -69,7 +69,7 @@ export default function Login() {
       setStatus("success");
       return;
     }
-    if (result?.ok && result.alreadyRegistered) {
+    if (result.status === "already_registered") {
       try {
         sessionStorage.setItem(
           BETA_WAITLIST_KEY,
