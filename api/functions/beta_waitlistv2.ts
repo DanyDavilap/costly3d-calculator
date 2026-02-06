@@ -26,12 +26,14 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  // Validamos que el request sea JSON.
   const contentType = String(req.headers?.["content-type"] ?? "");
   if (!contentType.includes("application/json")) {
     res.status(400).json({ ok: false, error: "Invalid JSON body" });
     return;
   }
 
+  // Parseamos el body y validamos el email.
   const payload = parseJsonBody(req.body);
   if (!payload) {
     res.status(400).json({ ok: false, error: "Invalid JSON body" });
@@ -44,6 +46,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  // Credenciales server-side para escribir en Supabase.
   const supabaseUrl =
     process.env.SB_URL ?? process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
   const serviceRoleKey = process.env.SB_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -58,6 +61,7 @@ export default async function handler(req: any, res: any) {
   });
 
   try {
+    // Si ya existe, marcamos como alreadyRegistered.
     const now = new Date().toISOString();
     const { data: existing, error: selectError } = await supabaseAdmin
       .from("beta_waitlist")
@@ -66,6 +70,7 @@ export default async function handler(req: any, res: any) {
       .maybeSingle();
 
     if (selectError) {
+      // Incluye casos como tabla inexistente o schema mal configurado.
       res.status(500).json({ ok: false, error: "Database error" });
       return;
     }
@@ -79,6 +84,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    // Si no existía, insertamos y respondemos registered.
     const { error: insertError } = await supabaseAdmin.from("beta_waitlist").insert({
       email,
       requested_at: now,
@@ -86,6 +92,7 @@ export default async function handler(req: any, res: any) {
     });
 
     if (insertError) {
+      // Incluye casos como tabla inexistente o schema mal configurado.
       res.status(500).json({ ok: false, error: "Database error" });
       return;
     }
