@@ -1,5 +1,3 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL_PRIMARY = "gemini-1.5-flash";
 const MODEL_FALLBACK = "gemini-1.5-pro";
@@ -32,9 +30,13 @@ type AssistantPayload = {
   mensaje_cliente: string;
 };
 
-function badRequest(res: VercelResponse, message: string) {
-  res.status(400).json({ ok: false, error: message });
-}
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+const badRequest = (message: string) => jsonResponse({ ok: false, error: message }, 400);
 
 async function callGemini(model: string, text: string): Promise<string> {
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY no está configurada");
@@ -105,15 +107,21 @@ function tryParseJson(raw: string): AssistantPayload | null {
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ ok: false, error: "Método no permitido" });
+    return jsonResponse({ ok: false, error: "Método no permitido" }, 405);
   }
 
-  const text = (req.body as { text?: string } | undefined)?.text?.toString?.().trim?.() ?? "";
-  if (!text) return badRequest(res, "El campo 'text' es requerido.");
-  if (text.length > 1200) return badRequest(res, "El texto supera los 1200 caracteres.");
+  let payload: { text?: string } = {};
+  try {
+    payload = (await req.json()) as { text?: string };
+  } catch {
+    return badRequest("Body debe ser JSON.");
+  }
+
+  const text = payload.text?.toString?.().trim?.() ?? "";
+  if (!text) return badRequest("El campo 'text' es requerido.");
+  if (text.length > 1200) return badRequest("El texto supera los 1200 caracteres.");
 
   try {
     let raw = await callGemini(MODEL_PRIMARY, text);
@@ -126,13 +134,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       parsed = tryParseJson(raw);
     }
     if (!parsed) {
-      return res
-        .status(502)
-        .json({ ok: false, error: "No pudimos generar una respuesta estructurada. Intenta de nuevo." });
+      return jsonResponse(
+        { ok: false, error: "No pudimos generar una respuesta estructurada. Intenta de nuevo." },
+        502
+      );
     }
-    return res.status(200).json({ ok: true, result: parsed });
+    return jsonResponse({ ok: true, result: parsed }, 200);
   } catch (error) {
     console.error("maker-assistant", error);
-    return res.status(500).json({ ok: false, error: "No se pudo procesar la solicitud. Intenta nuevamente." });
+    return jsonResponse({ ok: false, error: "No se pudo procesar la solicitud. Intenta nuevamente." }, 500);
   }
 }
