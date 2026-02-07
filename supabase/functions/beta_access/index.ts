@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.204.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.3";
 
-type WaitlistPayload = {
+type AccessPayload = {
   email?: string;
 };
 
@@ -23,20 +23,17 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 serve(async (req) => {
-  // Preflight CORS.
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  // Solo acepta POST con JSON. No abrir en el navegador directamente (GET responde 404).
   if (req.method !== "POST") {
     return jsonResponse({ ok: false, error: "Not found" }, 404);
   }
 
-  // Parseamos el JSON y validamos el email.
-  let payload: WaitlistPayload = {};
+  let payload: AccessPayload = {};
   try {
-    payload = (await req.json()) as WaitlistPayload;
+    payload = (await req.json()) as AccessPayload;
   } catch (_error) {
     return jsonResponse({ ok: false, error: "Invalid email" }, 400);
   }
@@ -47,7 +44,6 @@ serve(async (req) => {
     return jsonResponse({ ok: false, error: "Invalid email" }, 400);
   }
 
-  // Credenciales server-side para escribir en Supabase.
   const supabaseUrl = Deno.env.get("PROJECT_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) {
@@ -58,41 +54,23 @@ serve(async (req) => {
     auth: { persistSession: false },
   });
 
-  // Si existe, actualizamos last_request_at; si no, insertamos.
-  const now = new Date().toISOString();
-  const { data: existing, error: selectError } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("beta_waitlist")
-    .select("id")
+    .select("status")
     .eq("email", email)
     .maybeSingle();
 
-  if (selectError) {
+  if (error) {
     return jsonResponse({ ok: false, error: "Database error" }, 500);
   }
 
-  if (existing?.id) {
-    const { error: updateError } = await supabaseAdmin
-      .from("beta_waitlist")
-      .update({ last_request_at: now })
-      .eq("id", existing.id);
-
-    if (updateError) {
-      return jsonResponse({ ok: false, error: "Database error" }, 500);
-    }
-
-    return jsonResponse({ ok: true, alreadyRegistered: true }, 200);
+  if (!data) {
+    return jsonResponse({ ok: true, approved: false, reason: "not_found" }, 200);
   }
 
-  const { error: insertError } = await supabaseAdmin.from("beta_waitlist").insert({
-    email,
-    status: "pending",
-    requested_at: now,
-    last_request_at: now,
-  });
-
-  if (insertError) {
-    return jsonResponse({ ok: false, error: "Database error" }, 500);
+  if (data.status === "approved") {
+    return jsonResponse({ ok: true, approved: true }, 200);
   }
 
-  return jsonResponse({ ok: true, registered: true }, 200);
+  return jsonResponse({ ok: true, approved: false, reason: "pending" }, 200);
 });
