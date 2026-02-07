@@ -3,27 +3,9 @@ import { wikiGroups, defaultWikiSectionId } from "../data/wikiSections";
 import { loadWikiContent } from "../data/wikiIndex";
 import WikiSidebar from "./WikiSidebar";
 import WikiContent from "./WikiContent";
-import { isBeta } from "../../utils/appMode";
 
-type WikiLayoutProps = {
-  isProEnabled: boolean;
-  onUnlockPro: () => void;
-};
-
-export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProps) {
-  const isBetaApp = isBeta();
-  const availableGroups = useMemo(() => {
-    if (!isBetaApp) return wikiGroups;
-    const mindsetSection = wikiGroups.flatMap((group) => group.sections).find((section) => section.id === "mindset");
-    if (!mindsetSection) return [];
-    return [
-      {
-        id: "beta",
-        title: "Wiki",
-        sections: [{ ...mindsetSection, isPro: false }],
-      },
-    ];
-  }, [isBetaApp]);
+export default function WikiLayout() {
+  const availableGroups = wikiGroups;
   const initialSectionId = useMemo(
     () => availableGroups[0]?.sections[0]?.id ?? defaultWikiSectionId,
     [availableGroups],
@@ -77,9 +59,6 @@ export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProp
       <WikiContent
         title={activeSection?.title ?? "Wiki"}
         markdown={isLoading ? "Cargando contenido..." : content}
-        isProSection={activeSection?.isPro ?? false}
-        isProEnabled={isProEnabled}
-        onUnlockPro={onUnlockPro}
       />
     </div>
   );

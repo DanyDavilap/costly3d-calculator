@@ -2,7 +2,6 @@ export type WikiSectionMeta = {
   id: string;
   title: string;
   file: string;
-  isPro?: boolean;
 };
 
 export type WikiGroup = {
@@ -37,10 +36,10 @@ export const wikiGroups: WikiGroup[] = [
     id: "pro",
     title: "PRO",
     sections: [
-      { id: "pricing", title: "Estrategia de precios", file: "pricing.md", isPro: true },
-      { id: "failure-reduction", title: "Reducción de fallos", file: "failure-reduction.md", isPro: true },
-      { id: "organization", title: "Organización operativa", file: "organization.md", isPro: true },
-      { id: "mindset", title: "Mentalidad de negocio 3D", file: "mindset.md", isPro: true },
+      { id: "pricing", title: "Estrategia de precios", file: "pricing.md" },
+      { id: "failure-reduction", title: "Reducción de fallos", file: "failure-reduction.md" },
+      { id: "organization", title: "Organización operativa", file: "organization.md" },
+      { id: "mindset", title: "Mentalidad de negocio 3D", file: "mindset.md" },
     ],
   },
 ];

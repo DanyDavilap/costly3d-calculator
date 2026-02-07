@@ -1,5 +1,3 @@
-import ProBadge from "./ProBadge";
-
 type MarkdownBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string }
@@ -79,33 +77,19 @@ const parseMarkdown = (markdown: string): MarkdownBlock[] => {
 type WikiContentProps = {
   title: string;
   markdown: string;
-  isProSection?: boolean;
-  isProEnabled: boolean;
-  onUnlockPro: () => void;
 };
 
-export default function WikiContent({
-  title,
-  markdown,
-  isProSection = false,
-  isProEnabled,
-  onUnlockPro,
-}: WikiContentProps) {
+export default function WikiContent({ title, markdown }: WikiContentProps) {
   const blocks = parseMarkdown(markdown);
-  const isLocked = isProSection && !isProEnabled;
-  const previewBlocks = isLocked ? blocks.slice(0, 4) : blocks;
 
   return (
     <section className="relative rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-        {isProSection && <ProBadge size="md" />}
       </div>
-      <div className={`space-y-4 text-sm text-gray-700 ${isLocked ? "max-h-[360px] overflow-hidden" : ""}`}>
-        {previewBlocks.length === 0 && (
-          <p className="text-sm text-gray-500">Contenido pendiente de carga.</p>
-        )}
-        {previewBlocks.map((block, index) => {
+      <div className="space-y-4 text-sm text-gray-700">
+        {blocks.length === 0 && <p className="text-sm text-gray-500">Contenido pendiente de carga.</p>}
+        {blocks.map((block, index) => {
           if (block.type === "heading") {
             const className =
               block.level === 1
@@ -151,24 +135,6 @@ export default function WikiContent({
           return null;
         })}
       </div>
-
-      {isLocked && (
-        <div className="absolute inset-0 flex items-end justify-center rounded-3xl bg-gradient-to-t from-white via-white/90 to-transparent p-8">
-          <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-4 text-center shadow-lg">
-            <p className="text-sm font-semibold text-gray-800">Desbloqueá este contenido PRO</p>
-            <p className="mt-2 text-xs text-gray-500">
-              Accedé a prácticas avanzadas, métricas profesionales y guías de negocio 3D.
-            </p>
-            <button
-              type="button"
-              onClick={onUnlockPro}
-              className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition"
-            >
-              Desbloquear PRO
-            </button>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

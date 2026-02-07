@@ -1,4 +1,3 @@
-import ProBadge from "./ProBadge";
 import type { WikiGroup } from "../data/wikiSections";
 
 type WikiSidebarProps = {
@@ -26,7 +25,6 @@ export default function WikiSidebar({ groups, activeId, onSelect }: WikiSidebarP
                   }`}
                 >
                   <span>{section.title}</span>
-                  {section.isPro && <ProBadge />}
                 </button>
               ))}
             </div>
