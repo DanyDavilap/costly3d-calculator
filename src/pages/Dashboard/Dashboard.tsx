@@ -62,7 +62,6 @@ import {
 import { BRAND_STORAGE_KEY, loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
 import { isDev } from "../../utils/proPermissions";
 import {
-  canAccess,
   canConsumeProduction,
   canConsumeQuote,
   consumeProduction,
@@ -767,11 +766,6 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   }, [isBetaApp, betaQuoteLimit, betaProductionLimit]);
 
   useEffect(() => {
-    if (canAccess(activeSection)) return;
-    setActiveSection("calculator");
-  }, [activeSection]);
-
-  useEffect(() => {
     if (ENABLE_COMPARATOR) return;
     // Evitar acceso directo al comparador mientras esté desactivado.
     if (activeSection === "scenarios") {
@@ -1274,7 +1268,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         advancedExports: false,
         quoteExport: true,
       };
-  const canBranding = !isBetaApp && (BRANDING_ACTIVO || isProEnabled || featureFlags.branding);
+  const hasBrandingAccess = import.meta.env.VITE_BRANDING_UNLOCK === "true";
   const canAdvancedMetrics = isProApp ? true : isBetaApp ? false : featureFlags.advancedMetrics;
   const canMonthlyReportExport = isProApp || isBetaApp || featureFlags.advancedExports;
   const canExcelExport = isProApp || featureFlags.advancedExports;
@@ -2112,7 +2106,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     if (!breakdown) return;
 
     const doc = new jsPDF();
-    const pdfBrand = canBranding ? brand : DEFAULT_BRAND;
+    const pdfBrand = hasBrandingAccess ? brand : DEFAULT_BRAND;
     const theme = createPdfTheme(pdfBrand);
     const pageWidth = doc.internal.pageSize.getWidth();
     const rightEdge = pageWidth - theme.marginX;
@@ -2493,7 +2487,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       return;
     }
     try {
-      exportarExcel(activarBranding(reporteExportData, brand, canBranding));
+      exportarExcel(activarBranding(reporteExportData, brand, hasBrandingAccess));
     } catch (error) {
       toast.error("No pudimos generar el Excel. Intentalo de nuevo.");
     }
@@ -2509,7 +2503,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       return;
     }
     try {
-      await exportarPDF(activarBranding(reporteExportData, brand, canBranding), reportCardsRef.current);
+      await exportarPDF(activarBranding(reporteExportData, brand, hasBrandingAccess), reportCardsRef.current);
     } catch (error) {
       toast.error("No pudimos generar el PDF. Intentalo de nuevo.");
     }
@@ -3367,7 +3361,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     {group.items.map((item) => {
                       const Icon = item.icon;
                       const isActive = activeSection === item.id;
-                      const isLocked = !canAccess(item.id);
+                      const isLocked = item.id === "branding" && !hasBrandingAccess;
                       return (
                         <button
                           key={item.id}
@@ -3387,11 +3381,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         >
                           <Icon size={18} />
                           {item.label}
-                          {isLocked && (
-                            <span className="ml-auto rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              PRO
-                            </span>
-                          )}
+                          {isLocked && <span className="ml-auto text-[12px]">🔒</span>}
                         </button>
                       );
                     })}
@@ -4122,7 +4112,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       )}
 
                       <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
-                        {canBranding && (
+                        {hasBrandingAccess && (
                           <div
                             className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b"
                             style={{ borderColor: brand.primaryColor || "#E5E7EB" }}
@@ -5996,169 +5986,162 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         )}
 
         {activeSection === "branding" && (
-          <section className="max-w-5xl mx-auto mt-10">
-            <div className="bg-white rounded-3xl shadow-2xl p-8 relative">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">Branding</h2>
-                  <p className="mt-2 text-sm text-gray-600">
-                    Personalizá logo, nombre de negocio y estilo para PDFs y reportes.
-                  </p>
-                </div>
-                <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
-                  PRO
-                </span>
-              </div>
-
-              <div
-                className={`mt-6 grid md:grid-cols-2 gap-6 ${
-                  canBranding ? "" : "blur-sm opacity-60 pointer-events-none"
-                }`}
-              >
-                <div className="space-y-4">
+          hasBrandingAccess ? (
+            <section className="max-w-5xl mx-auto mt-10">
+              <div className="bg-white rounded-3xl shadow-2xl p-8">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre de negocio</label>
-                    <input
-                      type="text"
-                      value={brand.name}
-                      onChange={(event) => handleBrandChange("name", event.target.value)}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Color primario</label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={brand.primaryColor || "#5b9dff"}
-                        onChange={(event) => handleBrandChange("primaryColor", event.target.value)}
-                        className="h-10 w-16 rounded-lg border border-gray-200"
-                      />
-                      <input
-                        type="text"
-                        value={brand.primaryColor}
-                        onChange={(event) => handleBrandChange("primaryColor", event.target.value)}
-                        className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Texto del footer</label>
-                    <input
-                      type="text"
-                      value={brand.footerText}
-                      onChange={(event) => handleBrandChange("footerText", event.target.value)}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">
-                      Redes sociales (opcional)
-                    </label>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={brand.instagram}
-                        onChange={(event) => handleBrandChange("instagram", event.target.value)}
-                        placeholder="Instagram (ej: @tuusuario)"
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={brand.whatsapp}
-                        onChange={(event) => handleBrandChange("whatsapp", event.target.value)}
-                        placeholder="WhatsApp (ej: +54 9 11 1234-5678)"
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={brand.website}
-                        onChange={(event) => handleBrandChange("website", event.target.value)}
-                        placeholder="Sitio web (ej: tuweb.com)"
-                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Logo (PNG/JPG)</label>
-                    <input
-                      type="file"
-                      accept="image/png, image/jpeg"
-                      onChange={handleLogoUpload}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
-                    {brand.logoDataUrl && (
-                      <button
-                        type="button"
-                        onClick={() => handleBrandChange("logoDataUrl", "")}
-                        className="mt-2 text-xs text-red-500 hover:text-red-600"
-                      >
-                        Quitar logo
-                      </button>
-                    )}
+                    <h2 className="text-2xl font-bold text-gray-800">Branding</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Personalizá logo, nombre de negocio y estilo para PDFs y reportes.
+                    </p>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">Vista previa</p>
-                  <div className="mt-4 flex items-center gap-3">
-                    {brand.logoDataUrl ? (
-                      <img
-                        src={brand.logoDataUrl}
-                        alt={brand.name || "Logo"}
-                        className="h-12 w-12 rounded-xl object-contain bg-white"
-                      />
-                    ) : (
-                      <div
-                        className="h-12 w-12 rounded-xl flex items-center justify-center text-white font-bold"
-                        style={{ backgroundColor: brand.primaryColor || "#5b9dff" }}
-                      >
-                        {brand.name?.trim().charAt(0) || "C"}
-                      </div>
-                    )}
+                <div className="mt-6 grid md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
                     <div>
-                      <p className="text-sm text-gray-500">Marca</p>
-                      <p className="text-lg font-semibold text-gray-800">{brand.name || "Costly3D"}</p>
-                      {(brand.instagram || brand.whatsapp || brand.website) && (
-                        <p className="text-xs text-gray-400">
-                          {[brand.instagram, brand.whatsapp, brand.website].filter(Boolean).join(" • ")}
-                        </p>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Nombre de negocio</label>
+                      <input
+                        type="text"
+                        value={brand.name}
+                        onChange={(event) => handleBrandChange("name", event.target.value)}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Color primario</label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={brand.primaryColor || "#5b9dff"}
+                          onChange={(event) => handleBrandChange("primaryColor", event.target.value)}
+                          className="h-10 w-16 rounded-lg border border-gray-200"
+                        />
+                        <input
+                          type="text"
+                          value={brand.primaryColor}
+                          onChange={(event) => handleBrandChange("primaryColor", event.target.value)}
+                          className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Texto del footer</label>
+                      <input
+                        type="text"
+                        value={brand.footerText}
+                        onChange={(event) => handleBrandChange("footerText", event.target.value)}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">
+                        Redes sociales (opcional)
+                      </label>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={brand.instagram}
+                          onChange={(event) => handleBrandChange("instagram", event.target.value)}
+                          placeholder="Instagram (ej: @tuusuario)"
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          value={brand.whatsapp}
+                          onChange={(event) => handleBrandChange("whatsapp", event.target.value)}
+                          placeholder="WhatsApp (ej: +54 9 11 1234-5678)"
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          value={brand.website}
+                          onChange={(event) => handleBrandChange("website", event.target.value)}
+                          placeholder="Sitio web (ej: tuweb.com)"
+                          className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Logo (PNG/JPG)</label>
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg"
+                        onChange={handleLogoUpload}
+                        className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                      {brand.logoDataUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleBrandChange("logoDataUrl", "")}
+                          className="mt-2 text-xs text-red-500 hover:text-red-600"
+                        >
+                          Quitar logo
+                        </button>
                       )}
                     </div>
                   </div>
-                  <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-white p-4 text-xs text-gray-500">
-                    Color activo: <span className="font-semibold">{brand.primaryColor || "#5b9dff"}</span>
-                    <br />
-                    Footer: {brand.footerText || "—"}
-                    {(brand.instagram || brand.whatsapp || brand.website) && (
-                      <>
-                        <br />
-                        <span className="font-semibold">Redes:</span>{" "}
-                        {[brand.instagram, brand.whatsapp, brand.website].filter(Boolean).join(" • ")}
-                      </>
-                    )}
+
+                  <div className="rounded-2xl border border-gray-200 bg-slate-50 p-5">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Vista previa</p>
+                    <div className="mt-4 flex items-center gap-3">
+                      {brand.logoDataUrl ? (
+                        <img
+                          src={brand.logoDataUrl}
+                          alt={brand.name || "Logo"}
+                          className="h-12 w-12 rounded-xl object-contain bg-white"
+                        />
+                      ) : (
+                        <div
+                          className="h-12 w-12 rounded-xl flex items-center justify-center text-white font-bold"
+                          style={{ backgroundColor: brand.primaryColor || "#5b9dff" }}
+                        >
+                          {brand.name?.trim().charAt(0) || "C"}
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm text-gray-500">Marca</p>
+                        <p className="text-lg font-semibold text-gray-800">{brand.name || "Costly3D"}</p>
+                        {(brand.instagram || brand.whatsapp || brand.website) && (
+                          <p className="text-xs text-gray-400">
+                            {[brand.instagram, brand.whatsapp, brand.website].filter(Boolean).join(" • ")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-white p-4 text-xs text-gray-500">
+                      Color activo: <span className="font-semibold">{brand.primaryColor || "#5b9dff"}</span>
+                      <br />
+                      Footer: {brand.footerText || "—"}
+                      {(brand.instagram || brand.whatsapp || brand.website) && (
+                        <>
+                          <br />
+                          <span className="font-semibold">Redes:</span>{" "}
+                          {[brand.instagram, brand.whatsapp, brand.website].filter(Boolean).join(" • ")}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {!canBranding && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
-                  <div className="text-center px-6">
-                    <p className="text-sm text-gray-600 mb-4">
-                      Desbloqueá Branding PRO para personalizar tus documentos.
-                    </p>
-                    <button
-                      type="button"
-                      className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                      onClick={() => handleOpenProModal("cta")}
-                    >
-                      Acceso anticipado PRO
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
+            </section>
+          ) : (
+            <section className="max-w-3xl mx-auto mt-10">
+              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
+                <h2 className="text-2xl font-bold text-gray-900">Branding (PRO)</h2>
+                <p className="mt-3 text-sm text-gray-600">Esta sección está reservada para PRO.</p>
+                <a
+                  className="mt-5 inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition"
+                  href="mailto:soporte@costly3d.com?subject=Acceso%20Branding%20PRO"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Solicitar acceso
+                </a>
+              </div>
+            </section>
+          )
         )}
 
         {activeSection === "settings" && (
