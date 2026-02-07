@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+﻿import { FormEvent, useEffect, useState } from "react";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import { sendBetaWaitlistEmail } from "../../services/waitlist";
@@ -21,16 +21,17 @@ export default function Login() {
   };
 
   useEffect(() => {
-    // Restauramos el email guardado para evitar envíos múltiples en la sesión.
+    // Restauramos el email guardado para evitar envÃ­os mÃºltiples en la sesiÃ³n.
     const cached = readWaitlistCache();
     const savedEmail = typeof cached?.email === "string" ? cached.email : "";
     if (!savedEmail) return;
     setEmail(savedEmail);
     if (cached?.status === "already_registered") {
-      setError("Este correo ya fue registrado previamente.");
+      setSuccessMessage("Este correo ya estaba en la lista.");
+      setStatus("success");
       return;
     }
-    setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+    setSuccessMessage("Listo, quedaste en la lista.");
     setStatus("success");
   }, []);
 
@@ -40,11 +41,13 @@ export default function Login() {
     const trimmed = email.trim();
     const cached = readWaitlistCache();
     if (cached?.email === trimmed) {
-      setError("Este correo ya fue registrado previamente.");
+      setSuccessMessage("Este correo ya estaba en la lista.");
+      setStatus("success");
+      setError("");
       return;
     }
     if (!isValidEmail(trimmed)) {
-      setError("Ingresá un email válido.");
+      setError("IngresÃ¡ un email vÃ¡lido.");
       return;
     }
     setError("");
@@ -65,7 +68,7 @@ export default function Login() {
       } catch (storageError) {
         // Ignore storage errors to avoid blocking the UI.
       }
-      setSuccessMessage("Correo registrado. Te contactaremos si quedás dentro de la beta.");
+      setSuccessMessage(result.message);
       setStatus("success");
       return;
     }
@@ -83,12 +86,13 @@ export default function Login() {
       } catch (storageError) {
         // Ignore storage errors to avoid blocking the UI.
       }
-      setStatus("idle");
-      setError("Este correo ya fue registrado previamente.");
+      setSuccessMessage(result.message);
+      setStatus("success");
+      setError("");
       return;
     }
     setStatus("idle");
-    setError("Hubo un error. Intentá nuevamente.");
+    setError(result.message);
   };
 
   return (
@@ -117,14 +121,15 @@ export default function Login() {
           )}
           {status === "success" && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {successMessage || "Correo registrado. Te contactaremos si quedás dentro de la beta."}
+              {successMessage || "Correo registrado. Te contactaremos si quedÃ¡s dentro de la beta."}
             </div>
           )}
           <Button type="submit" className="w-full" disabled={status === "submitting" || status === "success"}>
-            {status === "submitting" ? "Enviando…" : "Enviar"}
+            {status === "submitting" ? "Enviandoâ€¦" : "Enviar"}
           </Button>
         </form>
       </Card>
     </div>
   );
 }
+

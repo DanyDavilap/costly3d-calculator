@@ -25,7 +25,7 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
 serve(async (req) => {
   // Preflight CORS.
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   // Solo acepta POST con JSON. No abrir en el navegador directamente (GET responde 404).
@@ -47,8 +47,8 @@ serve(async (req) => {
   }
 
   // Credenciales server-side para escribir en Supabase.
-  const supabaseUrl = Deno.env.get("SB_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SB_SERVICE_ROLE_KEY") ?? "";
+  const supabaseUrl = Deno.env.get("PROJECT_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) {
     return jsonResponse({ ok: false, error: "Database error" }, 500);
   }
