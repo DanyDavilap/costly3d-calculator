@@ -83,6 +83,7 @@ import {
   type EscenarioComparadorV1Input,
 } from "../../utils/escenariosComparadorV1";
 import WikiLayout from "../../wiki/components/WikiLayout";
+import { CAFECITO_URL } from "../../config/links";
 
 type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
 type ProjectPieceStatus = "pendiente" | "impresa" | "fallida";
@@ -3399,6 +3400,22 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                   <p>Te quedan {betaProductionsRemaining}/{betaProductionLimit} producciones</p>
                 </div>
               )}
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <a
+                  href={CAFECITO_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                >
+                  <span role="img" aria-label="coffee">
+                    ☕
+                  </span>
+                  Apoyar en Cafecito
+                </a>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  Proyecto independiente. Si te sirve, podés apoyarlo.
+                </p>
+              </div>
             </div>
           </aside>
           <main className="flex-1" data-section={activeSection}>
@@ -6128,17 +6145,25 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
             </section>
           ) : (
             <section className="max-w-3xl mx-auto mt-10">
-              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center">
+              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center space-y-4">
                 <h2 className="text-2xl font-bold text-gray-900">Branding (PRO)</h2>
-                <p className="mt-3 text-sm text-gray-600">Esta sección está reservada para PRO.</p>
-                <a
-                  className="mt-5 inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition"
-                  href="mailto:soporte@costly3d.com?subject=Acceso%20Branding%20PRO"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Solicitar acceso
-                </a>
+                <p className="text-sm text-gray-600">Esta sección está reservada para PRO.</p>
+                <div className="flex flex-col gap-3 items-center">
+                  <a
+                    className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition"
+                    href={CAFECITO_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Solicitar acceso
+                  </a>
+                  <a
+                    className="text-sm text-slate-500 underline"
+                    href="mailto:soporte@costly3d.com?subject=Acceso%20Branding%20PRO"
+                  >
+                    Contactar por email
+                  </a>
+                </div>
               </div>
             </section>
           )
