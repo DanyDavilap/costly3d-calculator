@@ -1,10 +1,10 @@
-﻿import { FormEvent, useEffect, useState } from "react";\r\nimport { useNavigate } from "react-router-dom";
+﻿import { FormEvent, useEffect, useState } from "react";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
-import { sendBetaWaitlistEmail } from "../../services/waitlist";\r\nimport { checkBetaAccess } from "../../services/betaAccess";
+import { sendBetaWaitlistEmail } from "../../services/waitlist";
 
 export default function Login() {
-  const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";\r\n  const navigate = useNavigate();
+  const BETA_WAITLIST_KEY = "costly3d_beta_waitlist_email_v1";
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
   const [error, setError] = useState("");
@@ -19,16 +19,6 @@ export default function Login() {
       return null;
     }
   };
-
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem("beta_access") === "approved") {
-        navigate("/app");
-      }
-    } catch (storageError) {
-      // Ignore storage errors to avoid blocking the UI.
-    }
-  }, [navigate]);
 
   useEffect(() => {
     // Restauramos el email guardado para evitar envÃ­os mÃºltiples en la sesiÃ³n.
@@ -49,28 +39,11 @@ export default function Login() {
     event.preventDefault();
     if (status !== "idle") return;
     const trimmed = email.trim();
-    const normalizedEmail = trimmed.toLowerCase();
     const cached = readWaitlistCache();
-    const cachedEmail = typeof cached?.email === "string" ? cached.email.toLowerCase() : "";
-    if (cachedEmail && cachedEmail === normalizedEmail) {
-      setError("");
-      setSuccessMessage("");
-      setStatus("submitting");
-      const access = await checkBetaAccess(normalizedEmail);
-      if (access.ok && access.approved) {
-        try {
-          sessionStorage.setItem("beta_access", "approved");
-          sessionStorage.setItem("beta_email", normalizedEmail);
-        } catch (storageError) {
-          // Ignore storage errors to avoid blocking the UI.
-        }
-        setSuccessMessage("Acceso habilitado ✅");
-        setStatus("success");
-        navigate("/app");
-        return;
-      }
+    if (cached?.email === trimmed) {
       setSuccessMessage("Este correo ya estaba en la lista.");
       setStatus("success");
+      setError("");
       return;
     }
     if (!isValidEmail(trimmed)) {
@@ -80,32 +53,13 @@ export default function Login() {
     setError("");
     setSuccessMessage("");
     setStatus("submitting");
-    const result = await sendBetaWaitlistEmail(normalizedEmail);
-    if (result.status === "error") {
-      setStatus("idle");
-      setError(result.message);
-      return;
-    }
-    const access = await checkBetaAccess(normalizedEmail);
-    if (access.ok && access.approved) {
-      try {
-        sessionStorage.setItem("beta_access", "approved");
-        sessionStorage.setItem("beta_email", normalizedEmail);
-      } catch (storageError) {
-        // Ignore storage errors to avoid blocking the UI.
-      }
-      setSuccessMessage("Acceso habilitado ✅");
-      setStatus("success");
-      setError("");
-      navigate("/app");
-      return;
-    }
+    const result = await sendBetaWaitlistEmail(trimmed);
     if (result.status === "registered") {
       try {
         sessionStorage.setItem(
           BETA_WAITLIST_KEY,
           JSON.stringify({
-            email: normalizedEmail,
+            email: trimmed,
             status: "registered",
             createdAt: new Date().toISOString(),
             source: "login_waitlist",
@@ -123,7 +77,7 @@ export default function Login() {
         sessionStorage.setItem(
           BETA_WAITLIST_KEY,
           JSON.stringify({
-            email: normalizedEmail,
+            email: trimmed,
             status: "already_registered",
             createdAt: new Date().toISOString(),
             source: "login_waitlist",
@@ -178,5 +132,8 @@ export default function Login() {
     </div>
   );
 }
+
+
+
 
 

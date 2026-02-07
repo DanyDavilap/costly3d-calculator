@@ -12,12 +12,10 @@ import Faltantes from "./pages/Faltantes/Faltantes";
 import Reportes from "./pages/Reportes/Reportes";
 import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
-import WaitlistAdmin from "./pages/Admin/WaitlistAdmin";
 import { isDev } from "./utils/proPermissions";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { isAuthConfigured } from "./services/auth";
 import { sendBetaWaitlistEmail } from "./services/waitlist";
-import { checkBetaAccess } from "./services/betaAccess";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 
@@ -295,52 +293,18 @@ export default function App() {
       // Respuesta esperada: { status: "open" | "full" }.
     }, []);
 
-    useEffect(() => {
-      try {
-        if (sessionStorage.getItem("beta_access") === "approved") {
-          setSuccessMessage("Acceso habilitado ✅");
-          setStatus("success");
-          setError("");
-          navigate("/app");
-        }
-      } catch (error) {
-        // Ignore storage errors to avoid blocking the flow.
-      }
-    }, []);
-
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const trimmed = email.trim();
-      const normalizedEmail = trimmed.toLowerCase();
       if (!isValidEmail(trimmed)) {
         setError("IngresÃ¡ un email vÃ¡lido.");
         return;
       }
       setStatus("submitting");
-      const result = await sendBetaWaitlistEmail(normalizedEmail);
-      if (result.status === "error") {
-        setStatus("idle");
-        setError(result.message);
-        setSuccessMessage("");
-        return;
-      }
-      const access = await checkBetaAccess(normalizedEmail);
-      if (access.ok && access.approved) {
-        try {
-          sessionStorage.setItem("beta_access", "approved");
-          sessionStorage.setItem("beta_email", normalizedEmail);
-        } catch (error) {
-          // Ignore storage errors to avoid blocking the flow.
-        }
-        setSuccessMessage("Acceso habilitado ✅");
-        setStatus("success");
-        setError("");
-        navigate("/app");
-        return;
-      }
+      const result = await sendBetaWaitlistEmail(trimmed);
 
       if (result.status === "registered") {
-        sessionStorage.setItem("beta_waitlist_email", normalizedEmail);
+        sessionStorage.setItem("beta_waitlist_email", trimmed);
         setSuccessMessage(result.message);
         setStatus("success");
         setError("");
@@ -449,15 +413,6 @@ export default function App() {
 
   const BetaInfoScreen = () => <BetaClosedScreen initialStatus="open" />;
 
-  const hasBetaAccess = () => {
-    if (typeof window === "undefined") return false;
-    try {
-      return sessionStorage.getItem("beta_access") === "approved";
-    } catch (error) {
-      return false;
-    }
-  };
-
   const RequireAuth = ({ children }: { children: JSX.Element }) => {
     const location = useLocation();
     const { status, logout } = useAuth();
@@ -466,9 +421,6 @@ export default function App() {
     if (status === "beta_expired") return <ExpiredScreen onLogout={logout} />;
     if (status === "error") return <ErrorScreen onRetry={logout} />;
     if (status === "unauthenticated") {
-      if (hasBetaAccess()) {
-        return children;
-      }
       return <Navigate to="/login" state={{ from: location }} replace />;
     }
     return children;
@@ -535,7 +487,6 @@ export default function App() {
             />
           }
         />
-        <Route path="/admin/waitlist" element={<WaitlistAdmin />} />
         <Route path="/beta-info" element={<BetaInfoScreen />} />
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<LoginRoute />} />
