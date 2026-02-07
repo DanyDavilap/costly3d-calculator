@@ -13,6 +13,7 @@ import Reportes from "./pages/Reportes/Reportes";
 import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
+import { ensureBetaStartedAt, isBeta, openBetaAccessForm } from "./utils/appMode";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { isAuthConfigured } from "./services/auth";
 import { sendBetaWaitlistEmail } from "./services/waitlist";
@@ -42,6 +43,11 @@ export default function App() {
     } catch (error) {
       // Ignore storage errors to avoid blocking the app.
     }
+  }, []);
+
+  useEffect(() => {
+    if (!isBeta()) return;
+    ensureBetaStartedAt();
   }, []);
 
   const openProModal = (source: "limit" | "cta" = "cta") => {
@@ -102,11 +108,7 @@ export default function App() {
       debugTrack("pro_cta_click", { source: "free_limit_modal" });
     }
     track("pro_cta_click", { source: "free_limit_modal" });
-    window.open(
-      "https://docs.google.com/forms/d/e/1FAIpQLSckMvV_judFYw4r5OY_2Rbf8miQAUVwbKXqosMuW41G1qVzKQ/viewform",
-      "_blank",
-      "noopener,noreferrer",
-    );
+    openBetaAccessForm();
   };
 
   const modalLayer = (

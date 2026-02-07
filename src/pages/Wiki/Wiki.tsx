@@ -1,6 +1,6 @@
 import WikiLayout from "../../wiki/components/WikiLayout";
-import { isProUser } from "../../utils/proPermissions";
+import { isPro } from "../../utils/appMode";
 
 export default function Wiki() {
-  return <WikiLayout isProEnabled={isProUser()} onUnlockPro={() => {}} />;
+  return <WikiLayout isProEnabled={isPro()} onUnlockPro={() => {}} />;
 }

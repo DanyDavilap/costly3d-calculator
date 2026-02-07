@@ -3,6 +3,7 @@ import { wikiGroups, defaultWikiSectionId } from "../data/wikiSections";
 import { loadWikiContent } from "../data/wikiIndex";
 import WikiSidebar from "./WikiSidebar";
 import WikiContent from "./WikiContent";
+import { isBeta } from "../../utils/appMode";
 
 type WikiLayoutProps = {
   isProEnabled: boolean;
@@ -10,17 +11,42 @@ type WikiLayoutProps = {
 };
 
 export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProps) {
-  const [activeId, setActiveId] = useState(defaultWikiSectionId);
+  const isBetaApp = isBeta();
+  const availableGroups = useMemo(() => {
+    if (!isBetaApp) return wikiGroups;
+    const mindsetSection = wikiGroups.flatMap((group) => group.sections).find((section) => section.id === "mindset");
+    if (!mindsetSection) return [];
+    return [
+      {
+        id: "beta",
+        title: "Wiki",
+        sections: [{ ...mindsetSection, isPro: false }],
+      },
+    ];
+  }, [isBetaApp]);
+  const initialSectionId = useMemo(
+    () => availableGroups[0]?.sections[0]?.id ?? defaultWikiSectionId,
+    [availableGroups],
+  );
+  const [activeId, setActiveId] = useState(() => initialSectionId);
   const [content, setContent] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const activeSection = useMemo(() => {
-    for (const group of wikiGroups) {
+    for (const group of availableGroups) {
       const found = group.sections.find((section) => section.id === activeId);
       if (found) return found;
     }
-    return wikiGroups[0]?.sections[0];
-  }, [activeId]);
+    return availableGroups[0]?.sections[0];
+  }, [activeId, availableGroups]);
+
+  useEffect(() => {
+    if (!availableGroups.length) return;
+    const exists = availableGroups.some((group) => group.sections.some((section) => section.id === activeId));
+    if (!exists) {
+      setActiveId(initialSectionId);
+    }
+  }, [activeId, availableGroups, initialSectionId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -47,7 +73,7 @@ export default function WikiLayout({ isProEnabled, onUnlockPro }: WikiLayoutProp
 
   return (
     <div className="grid gap-6 xl:grid-cols-[260px_1fr]">
-      <WikiSidebar groups={wikiGroups} activeId={activeId} onSelect={setActiveId} />
+      <WikiSidebar groups={availableGroups} activeId={activeId} onSelect={setActiveId} />
       <WikiContent
         title={activeSection?.title ?? "Wiki"}
         markdown={isLoading ? "Cargando contenido..." : content}

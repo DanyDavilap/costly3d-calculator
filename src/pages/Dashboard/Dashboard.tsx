@@ -60,7 +60,23 @@ import {
   type BrandSettings,
 } from "../../utils/pdfTheme";
 import { BRAND_STORAGE_KEY, loadBrandSettings, saveBrandSettings } from "../../utils/brandSettings";
-import { isDev, isProUser, type UserPlan } from "../../utils/proPermissions";
+import { isDev } from "../../utils/proPermissions";
+import {
+  canAccess,
+  canConsumeProduction,
+  canConsumeQuote,
+  consumeProduction,
+  consumeQuote,
+  ensureBetaStartedAt,
+  getBetaProductionCount,
+  getBetaProductionLimit,
+  getBetaQuoteCount,
+  getBetaQuoteLimit,
+  isBeta,
+  isBetaExpired,
+  isPro,
+  openBetaAccessForm,
+} from "../../utils/appMode";
 import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
 import type { AccessProfile, FeatureFlags } from "../../context/AuthContext";
 import {
@@ -171,7 +187,6 @@ const CATEGORY_STORAGE_KEY = "calculatorCategory";
 const MATERIAL_STOCK_KEY = "materialStock";
 const PROJECTS_STORAGE_KEY = "projects";
 const MARKETING_PROFILE_KEY = "marketingProfile";
-const FREE_PRODUCT_LIMIT = 3;
 const SHOW_PROFITABILITY_SECTION = true;
 // Comparador desactivado temporalmente: reactivar cuando el producto lo requiera.
 const ENABLE_COMPARATOR = false;
@@ -593,6 +608,21 @@ type DashboardSection =
 
 function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const handleOpenProModal = onOpenProModal ?? (() => {});
+  const isBetaApp = isBeta();
+  const isProApp = isPro();
+  const [betaQuoteCount, setBetaQuoteCount] = useState(() => (isBetaApp ? getBetaQuoteCount() : 0));
+  const [betaProductionCount, setBetaProductionCount] = useState(() =>
+    (isBetaApp ? getBetaProductionCount() : 0),
+  );
+  const [betaExpired, setBetaExpired] = useState(() => (isBetaApp ? isBetaExpired() : false));
+  const [betaModal, setBetaModal] = useState<null | {
+    type: "expired" | "tokens";
+    reason?: "quotes" | "production";
+  }>(null);
+  const betaQuoteLimit = getBetaQuoteLimit();
+  const betaProductionLimit = getBetaProductionLimit();
+  const betaQuotesRemaining = Math.max(0, betaQuoteLimit - betaQuoteCount);
+  const betaProductionsRemaining = Math.max(0, betaProductionLimit - betaProductionCount);
   const [activeSection, setActiveSection] = useState<DashboardSection>("calculator");
   const [records, setRecords] = useState<HistoryRecord[]>(() => loadStoredRecords(loadStoredParams()));
 
@@ -713,6 +743,33 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   useEffect(() => {
     localStorage.setItem(MARKETING_PROFILE_KEY, JSON.stringify(marketingProfile));
   }, [marketingProfile]);
+
+  useEffect(() => {
+    if (!isBetaApp) return;
+    ensureBetaStartedAt();
+    const quoteCount = getBetaQuoteCount();
+    const productionCount = getBetaProductionCount();
+    setBetaQuoteCount(quoteCount);
+    setBetaProductionCount(productionCount);
+    const expiredNow = isBetaExpired();
+    setBetaExpired(expiredNow);
+    if (expiredNow) {
+      setBetaModal({ type: "expired" });
+      return;
+    }
+    if (quoteCount >= betaQuoteLimit) {
+      setBetaModal({ type: "tokens", reason: "quotes" });
+      return;
+    }
+    if (productionCount >= betaProductionLimit) {
+      setBetaModal({ type: "tokens", reason: "production" });
+    }
+  }, [isBetaApp, betaQuoteLimit, betaProductionLimit]);
+
+  useEffect(() => {
+    if (canAccess(activeSection)) return;
+    setActiveSection("calculator");
+  }, [activeSection]);
 
   useEffect(() => {
     if (ENABLE_COMPARATOR) return;
@@ -870,6 +927,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       toast.info("Completá gramos y tiempo estimado para convertir el proyecto.");
       return;
     }
+    if (!ensureBetaQuota("quotes")) {
+      return;
+    }
     const inputs: PricingInputs = {
       timeMinutes: totals.time * 60,
       materialGrams: totals.grams,
@@ -904,6 +964,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     };
     const saved = persistHistory([newRecord, ...records]);
     if (saved) {
+      applyBetaConsumption("quotes");
       toast.success("Proyecto convertido en cotización.");
       setActiveSection("quotations");
     }
@@ -1197,25 +1258,67 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setMaterialStock(nextStock);
   };
 
-  const user: UserPlan = access?.plan ? { plan: access.plan } : null;
-  const isProEnabled = isProUser(user);
-  const featureFlags: FeatureFlags = access?.features ?? {
-    branding: false,
-    advancedMetrics: false,
-    pdfWatermark: false,
-    advancedExports: false,
-    quoteExport: true,
-  };
-  const quoteLimit = access?.maxQuotes ?? FREE_PRODUCT_LIMIT;
-  const canBranding = BRANDING_ACTIVO || isProEnabled || featureFlags.branding;
-  const canAdvancedMetrics = isProEnabled || featureFlags.advancedMetrics;
-  const canAdvancedExport = isProEnabled || featureFlags.advancedExports;
+  const isProEnabled = isProApp;
+  const featureFlags: FeatureFlags = isProApp
+    ? {
+        branding: true,
+        advancedMetrics: true,
+        pdfWatermark: false,
+        advancedExports: true,
+        quoteExport: true,
+      }
+    : access?.features ?? {
+        branding: false,
+        advancedMetrics: false,
+        pdfWatermark: false,
+        advancedExports: false,
+        quoteExport: true,
+      };
+  const canBranding = !isBetaApp && (BRANDING_ACTIVO || isProEnabled || featureFlags.branding);
+  const canAdvancedMetrics = isProApp ? true : isBetaApp ? false : featureFlags.advancedMetrics;
+  const canMonthlyReportExport = isProApp || isBetaApp || featureFlags.advancedExports;
+  const canExcelExport = isProApp || featureFlags.advancedExports;
   const canQuoteExport = isProEnabled || featureFlags.quoteExport;
   const shouldWatermarkPdf = featureFlags.pdfWatermark;
   const showStockOnboarding = materialStock.length === 0;
   const showStockBanner =
     showStockOnboarding &&
     (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
+
+  const ensureBetaQuota = (type: "quotes" | "production") => {
+    if (!isBetaApp) return true;
+    const expiredNow = betaExpired || isBetaExpired();
+    if (expiredNow) {
+      setBetaExpired(true);
+      setBetaModal({ type: "expired" });
+      return false;
+    }
+    const limitReached =
+      type === "quotes" ? betaQuoteCount >= betaQuoteLimit : betaProductionCount >= betaProductionLimit;
+    const canConsume = type === "quotes" ? canConsumeQuote() : canConsumeProduction();
+    if (!canConsume || limitReached) {
+      setBetaModal({ type: "tokens", reason: type });
+      return false;
+    }
+    return true;
+  };
+
+  const applyBetaConsumption = (type: "quotes" | "production") => {
+    if (!isBetaApp) return;
+    const next = type === "quotes" ? consumeQuote() : consumeProduction();
+    if (typeof next !== "number") return;
+    if (type === "quotes") {
+      setBetaQuoteCount(next);
+      if (next >= betaQuoteLimit) {
+        setBetaModal({ type: "tokens", reason: "quotes" });
+      }
+      return;
+    }
+    setBetaProductionCount(next);
+    if (next >= betaProductionLimit) {
+      setBetaModal({ type: "tokens", reason: "production" });
+    }
+  };
 
   const globalMetrics = useMemo(() => calculateMonthlyMetrics(records), [records]);
 
@@ -1932,17 +2035,8 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       allowDuplicateSignature?: boolean;
     }
   ): boolean => {
-    // Single source of truth: history persistence + free-limit checks live only here.
+    // Single source of truth: history persistence + duplicate checks live only here.
     const isGrowing = newRecords.length > records.length;
-    if (isGrowing && !isDev() && records.length >= quoteLimit) {
-      // Punto único de entrada PRO: mismo modal para límite FREE y CTA manual.
-      if (access?.plan === "beta") {
-        toast.info("Alcanzaste el limite de cotizaciones de la beta.", { duration: 2500 });
-      } else {
-        handleOpenProModal("limit");
-      }
-      return false;
-    }
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
       if (options.signature === lastSavedSignatureRef.current) {
         return false;
@@ -2294,9 +2388,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       }
     }
 
+    if (!ensureBetaQuota("quotes")) {
+      return false;
+    }
+
     const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
     const signature = buildRecordSignature(inputs, paramsSnapshot);
     const saved = persistHistory([newRecord, ...records], { signature });
+    if (saved) {
+      applyBetaConsumption("quotes");
+    }
     setEditingRecordId(null);
     return saved;
   };
@@ -2383,7 +2484,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const handleExportExcel = () => {
-    if (!canAdvancedExport) {
+    if (!canExcelExport) {
       toast.info("Las exportaciones avanzadas no están disponibles en tu plan.", { duration: 2500 });
       return;
     }
@@ -2399,7 +2500,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const handleExportPdf = async () => {
-    if (!canAdvancedExport) {
+    if (!canMonthlyReportExport) {
       toast.info("Las exportaciones avanzadas no están disponibles en tu plan.", { duration: 2500 });
       return;
     }
@@ -2525,6 +2626,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       closeConfirmModal();
       return;
     }
+    if (!ensureBetaQuota("production")) {
+      closeConfirmModal();
+      return;
+    }
     const nextRecords = records.map((record) =>
       record.id === confirmTarget.id
         ? {
@@ -2536,7 +2641,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
           }
         : record,
     );
-    persistHistory(nextRecords);
+    const saved = persistHistory(nextRecords);
+    if (saved) {
+      applyBetaConsumption("production");
+    }
     closeConfirmModal();
   };
 
@@ -2716,6 +2824,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       toast.info("Revisá los parámetros actuales antes de duplicar.", { duration: 2500 });
       return;
     }
+    if (!ensureBetaQuota("quotes")) {
+      return;
+    }
     const inputs: PricingInputs = { ...original.inputs };
     const paramsSnapshot: PricingParams = { ...params };
     const breakdown = pricingCalculator({ inputs, params: paramsSnapshot });
@@ -2758,12 +2869,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     };
     const saved = persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
     if (saved) {
+      applyBetaConsumption("quotes");
       toast.success("Cotización duplicada. Se recalcularon los costos actuales.");
     }
   };
 
   const duplicateProduction = (record: HistoryRecord) => {
     if (record.status !== "finalizada_ok" && record.status !== "finalizada_fallida") return;
+    if (!ensureBetaQuota("production")) {
+      return;
+    }
     const duplicated: HistoryRecord = {
       ...record,
       id: Date.now().toString(),
@@ -2778,8 +2893,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       stockChanges: [],
       materialGramsUsed: 0,
     };
-    persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
-    toast.success("Reimpresión creada. Ajustá y comenzá cuando quieras.");
+    const saved = persistHistory([duplicated, ...records], { allowDuplicateSignature: true });
+    if (saved) {
+      applyBetaConsumption("production");
+      toast.success("Reimpresión creada. Ajustá y comenzá cuando quieras.");
+    }
   };
 
   const deleteRecord = (record: HistoryRecord) => {
@@ -3249,25 +3367,48 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     {group.items.map((item) => {
                       const Icon = item.icon;
                       const isActive = activeSection === item.id;
+                      const isLocked = !canAccess(item.id);
                       return (
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => setActiveSection(item.id as DashboardSection)}
+                          onClick={() => {
+                            if (isLocked) return;
+                            setActiveSection(item.id as DashboardSection);
+                          }}
+                          disabled={isLocked}
                           className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
                             isActive
                               ? "bg-blue-500 text-white shadow-md"
-                              : "text-gray-600 hover:bg-gray-100"
+                              : isLocked
+                                ? "text-gray-400 cursor-not-allowed"
+                                : "text-gray-600 hover:bg-gray-100"
                           }`}
                         >
                           <Icon size={18} />
                           {item.label}
+                          {isLocked && (
+                            <span className="ml-auto rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              PRO
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 </div>
               ))}
+              {isBetaApp && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-3 text-xs text-blue-700">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">
+                    Beta activa
+                  </p>
+                  <p className="mt-2">
+                    Te quedan {betaQuotesRemaining}/{betaQuoteLimit} cotizaciones
+                  </p>
+                  <p>Te quedan {betaProductionsRemaining}/{betaProductionLimit} producciones</p>
+                </div>
+              )}
             </div>
           </aside>
           <main className="flex-1" data-section={activeSection}>
@@ -3773,7 +3914,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
               exit={{ opacity: 0, x: -20 }}
               className="max-w-7xl mx-auto"
             >
-              {activeSection === "reports" && (
+              {activeSection === "reports" && !isBetaApp && (
                 <div className="relative mb-6">
                   <div
                     id="proMonthlyReport"
@@ -4326,22 +4467,24 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <button
                         id="btnExportPDF"
                         onClick={handleExportPdf}
-                        disabled={!canAdvancedExport || monthlyReportRecords.length === 0}
+                        disabled={!canMonthlyReportExport || monthlyReportRecords.length === 0}
                         className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                       >
                         <Download size={18} />
                         Reporte mensual
                       </button>
                     </div>
-                    <button
-                      id="btnExportExcel"
-                      onClick={handleExportExcel}
-                      disabled={!canAdvancedExport || monthlyReportRecords.length === 0}
-                      className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-                    >
-                      <Download size={18} />
-                      Exportar Excel
-                    </button>
+                    {!isBetaApp && (
+                      <button
+                        id="btnExportExcel"
+                        onClick={handleExportExcel}
+                        disabled={!canExcelExport || monthlyReportRecords.length === 0}
+                        className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+                      >
+                        <Download size={18} />
+                        Exportar Excel
+                      </button>
+                    )}
                     <button
                       onClick={deleteHistory}
                       disabled={records.length === 0}
@@ -6285,6 +6428,57 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
           </main>
         </div>
       </div>
+      {betaModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setBetaModal(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Estado de la beta"
+          >
+            {betaModal.type === "expired" ? (
+              <>
+                <h3 className="text-2xl font-bold text-gray-900">Acceso beta finalizado</h3>
+                <p className="mt-3 text-sm text-gray-600">
+                  Tu acceso beta finalizó después de 15 días. Para seguir usando Costly3D, solicitá acceso.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-2xl font-bold text-gray-900">Tokens beta agotados</h3>
+                <p className="mt-3 text-sm text-gray-600">
+                  Alcanzaste el límite de{" "}
+                  {betaModal.reason === "production" ? betaProductionLimit : betaQuoteLimit}{" "}
+                  {betaModal.reason === "production" ? "producciones" : "cotizaciones"} en la beta.
+                  Solicitá acceso para continuar.
+                </p>
+              </>
+            )}
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  openBetaAccessForm();
+                }}
+                className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
+              >
+                Solicitar acceso
+              </button>
+              <button
+                type="button"
+                onClick={() => setBetaModal(null)}
+                className="bg-gray-100 text-gray-700 font-semibold px-5 py-3 rounded-xl hover:bg-gray-200 transition-all"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {devResetTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
