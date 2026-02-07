@@ -1,6 +1,19 @@
 export type AppMode = "pro" | "beta";
 
-const RAW_APP_MODE = import.meta.env.VITE_APP_MODE;
+const DEV_APP_MODE_KEY = "costly3d_dev_app_mode";
+
+const resolveDevAppMode = (): AppMode | null => {
+  if (import.meta.env.DEV !== true) return null;
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(DEV_APP_MODE_KEY);
+    return stored === "beta" ? "beta" : stored === "pro" ? "pro" : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const RAW_APP_MODE = resolveDevAppMode() ?? import.meta.env.VITE_APP_MODE;
 const APP_MODE: AppMode = RAW_APP_MODE === "beta" ? "beta" : "pro";
 
 const BETA_STARTED_AT_KEY = "beta_started_at";

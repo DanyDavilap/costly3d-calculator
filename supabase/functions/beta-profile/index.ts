@@ -62,7 +62,7 @@ serve(async (req) => {
     return jsonResponse({ error: "Failed to read beta status" }, 500);
   }
 
-  if (!row || row.status !== "active") {
+  if (!row || (row.status !== "active" && row.status !== "approved")) {
     return jsonResponse({ status: "error", message: "Access not active" }, 403);
   }
 

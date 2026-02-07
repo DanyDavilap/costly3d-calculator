@@ -68,7 +68,7 @@ serve(async (req) => {
     return jsonResponse({ ok: true, approved: false, reason: "not_found" }, 200);
   }
 
-  if (data.status === "approved") {
+  if (data.status === "approved" || data.status === "active") {
     return jsonResponse({ ok: true, approved: true }, 200);
   }
 

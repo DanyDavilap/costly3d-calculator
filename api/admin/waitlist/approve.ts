@@ -53,7 +53,8 @@ export default async function handler(req, res) {
   const note = typeof body?.note === "string" ? body.note.trim() : "";
 
   const payload = {
-    status: "approved",
+    // Usamos "active" para que beta-profile permita el acceso de inmediato.
+    status: "active",
     approved_at: new Date().toISOString(),
     approved_by: approvedBy || null,
     note: note || null,

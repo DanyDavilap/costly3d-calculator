@@ -55,6 +55,10 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Open access: simple email capture, no Supabase auth.
+const OPEN_ACCESS = true;
+const LOCAL_AUTH_KEY = "costly3d_local_email";
+
 const defaultFeaturesForPlan = (plan: "beta" | "pro"): FeatureFlags => {
   if (plan === "pro") {
     return {
@@ -104,7 +108,21 @@ const normalizeProfile = (profile: BetaProfile): AccessProfile => {
   };
 };
 
-const DEV_BYPASS = import.meta.env.DEV === true;
+const DEV_BETA_GATE = import.meta.env.VITE_DEV_BETA_GATE;
+const DEV_BETA_GATE_KEY = "costly3d_dev_beta_gate";
+
+const resolveDevBetaGate = () => {
+  if (import.meta.env.DEV !== true) return null;
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(DEV_BETA_GATE_KEY);
+    return stored === "full" || stored === "none" ? stored : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const DEV_BYPASS = import.meta.env.DEV === true && (resolveDevBetaGate() ?? DEV_BETA_GATE) !== "full";
 
 const DEV_PROFILE: AccessProfile = {
   email: "dev@costly3d.local",
@@ -129,6 +147,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearGate = useCallback(() => setGateStatus("none"), []);
 
   useEffect(() => {
+    if (OPEN_ACCESS) {
+      const storedEmail =
+        typeof window !== "undefined" ? window.localStorage.getItem(LOCAL_AUTH_KEY) ?? "" : "";
+      const proProfile: AccessProfile = {
+        email: storedEmail || "user@costly3d.pro",
+        plan: "pro",
+        betaExpiresAt: null,
+        maxQuotes: 9999,
+        features: {
+          branding: true,
+          advancedMetrics: true,
+          pdfWatermark: false,
+          advancedExports: true,
+          quoteExport: true,
+        },
+      };
+      setProfile(proProfile);
+      setStatus("authenticated");
+      setGateStatus("none");
+      setSession(null);
+      return;
+    }
+
+    const devGate = resolveDevBetaGate() ?? DEV_BETA_GATE;
+    if (import.meta.env.DEV === true && devGate === "full") {
+      setStatus("unauthenticated");
+      setProfile(null);
+      setSession(null);
+      setGateStatus("beta_full");
+      return;
+    }
     if (DEV_BYPASS) {
       setStatus("authenticated");
       setProfile(DEV_PROFILE);
@@ -152,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (OPEN_ACCESS) return;
     if (DEV_BYPASS) return;
     if (!isAuthConfigured) return;
     if (!session) {
@@ -186,6 +236,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   const loginWithEmail = useCallback(async (email: string): Promise<LoginResult> => {
+    if (OPEN_ACCESS) {
+      const trimmed = email.trim();
+      const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+      if (!isValid) {
+        return { status: "error", message: "Ingresá un email válido" };
+      }
+      try {
+        window.localStorage.setItem(LOCAL_AUTH_KEY, trimmed);
+      } catch (error) {
+        // ignore storage write errors
+      }
+      const proProfile: AccessProfile = {
+        email: trimmed,
+        plan: "pro",
+        betaExpiresAt: null,
+        maxQuotes: 9999,
+        features: {
+          branding: true,
+          advancedMetrics: true,
+          pdfWatermark: false,
+          advancedExports: true,
+          quoteExport: true,
+        },
+      };
+      setProfile(proProfile);
+      setStatus("authenticated");
+      setGateStatus("none");
+      return { status: "link_sent" };
+    }
+
     if (DEV_BYPASS) {
       setStatus("authenticated");
       setProfile(DEV_PROFILE);
@@ -199,6 +279,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (OPEN_ACCESS) {
+      try {
+        window.localStorage.removeItem(LOCAL_AUTH_KEY);
+      } catch (error) {
+        // ignore
+      }
+      setSession(null);
+      setProfile(null);
+      setStatus("unauthenticated");
+      setGateStatus("none");
+      return;
+    }
     await signOut();
     setSession(null);
     setProfile(null);

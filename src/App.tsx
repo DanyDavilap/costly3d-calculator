@@ -13,7 +13,7 @@ import Reportes from "./pages/Reportes/Reportes";
 import Configuracion from "./pages/Configuracion/Configuracion";
 import Wiki from "./pages/Wiki/Wiki";
 import { isDev } from "./utils/proPermissions";
-import { ensureBetaStartedAt, isBeta, openBetaAccessForm } from "./utils/appMode";
+import { ensureBetaStartedAt, getAppMode, isBeta, openBetaAccessForm } from "./utils/appMode";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { isAuthConfigured } from "./services/auth";
 import { sendBetaWaitlistEmail } from "./services/waitlist";
@@ -30,6 +30,26 @@ export default function App() {
   const FREE_LIMIT_EVENT_KEY = "costly3d_free_limit_reached_v1";
   const showProFlows = false; // TODO: reactivar flujo PRO cuando corresponda.
   const devMode = isDev();
+  const DEV_APP_MODE_KEY = "costly3d_dev_app_mode";
+  const DEV_BETA_GATE_KEY = "costly3d_dev_beta_gate";
+  const [devAppMode, setDevAppMode] = useState<"env" | "pro" | "beta">(() => {
+    if (typeof window === "undefined") return "env";
+    try {
+      const stored = window.localStorage.getItem(DEV_APP_MODE_KEY);
+      return stored === "beta" ? "beta" : stored === "pro" ? "pro" : "env";
+    } catch (error) {
+      return "env";
+    }
+  });
+  const [devGateMode, setDevGateMode] = useState<"env" | "none" | "full">(() => {
+    if (typeof window === "undefined") return "env";
+    try {
+      const stored = window.localStorage.getItem(DEV_BETA_GATE_KEY);
+      return stored === "full" ? "full" : stored === "none" ? "none" : "env";
+    } catch (error) {
+      return "env";
+    }
+  });
   const navigate = useNavigate();
   const authConfigured = isAuthConfigured || import.meta.env.DEV === true;
 
@@ -109,6 +129,37 @@ export default function App() {
     }
     track("pro_cta_click", { source: "free_limit_modal" });
     openBetaAccessForm();
+  };
+
+  const applyDevOverrides = (nextMode: "env" | "pro" | "beta", nextGate: "env" | "none" | "full") => {
+    if (typeof window === "undefined") return;
+    try {
+      if (nextMode === "env") {
+        localStorage.removeItem(DEV_APP_MODE_KEY);
+      } else {
+        localStorage.setItem(DEV_APP_MODE_KEY, nextMode);
+      }
+      if (nextGate === "env") {
+        localStorage.removeItem(DEV_BETA_GATE_KEY);
+      } else {
+        localStorage.setItem(DEV_BETA_GATE_KEY, nextGate);
+      }
+    } catch (error) {
+      // Ignore storage errors to avoid blocking the flow.
+    }
+    window.location.reload();
+  };
+
+  const resetBetaTokens = () => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.removeItem("beta_quotes_count");
+      localStorage.removeItem("beta_productions_count");
+      localStorage.removeItem("beta_started_at");
+    } catch (error) {
+      // Ignore storage errors to avoid blocking the flow.
+    }
+    window.location.reload();
   };
 
   const modalLayer = (
@@ -266,6 +317,7 @@ export default function App() {
       ðŸ›  DEV MODE ACTIVADO
     </div>
   ) : null;
+
 
   const LoadingScreen = () => (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
