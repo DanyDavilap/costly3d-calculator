@@ -84,6 +84,7 @@ import {
 } from "../../utils/escenariosComparadorV1";
 import WikiLayout from "../../wiki/components/WikiLayout";
 import { CAFECITO_URL } from "../../config/links";
+import MakerAssistant from "../../components/MakerAssistant";
 
 type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
 type ProjectPieceStatus = "pendiente" | "impresa" | "fallida";
@@ -5812,12 +5813,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     Decisiones prácticas para organizar tu producción y vender mejor.
                   </p>
                 </div>
-                <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">
-                  PRO
-                </span>
               </div>
 
-              <div className={`mt-6 ${canAdvancedMetrics ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
+              <div className="mt-6">
                 <div className="grid lg:grid-cols-[1.4fr_0.8fr] gap-6">
                   <div className="space-y-6">
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
@@ -5982,22 +5980,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                 </div>
               </div>
 
-              {!canAdvancedMetrics && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-white/70">
-                  <div className="text-center px-6">
-                    <p className="text-sm text-gray-600 mb-4">
-                      Desbloqueá Plan de acción PRO para tomar decisiones claras y accionables.
-                    </p>
-                    <button
-                      type="button"
-                      className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
-                      onClick={() => handleOpenProModal("cta")}
-                    >
-                      Acceso anticipado PRO
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="mt-6">
+                <MakerAssistant />
+              </div>
             </div>
           </section>
         )}
