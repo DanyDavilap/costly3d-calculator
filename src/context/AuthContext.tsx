@@ -150,8 +150,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (OPEN_ACCESS) {
       const storedEmail =
         typeof window !== "undefined" ? window.localStorage.getItem(LOCAL_AUTH_KEY) ?? "" : "";
+      const validEmail =
+        typeof storedEmail === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(storedEmail.trim());
+      if (!validEmail) {
+        setStatus("unauthenticated");
+        setProfile(null);
+        setGateStatus("none");
+        setSession(null);
+        return;
+      }
       const proProfile: AccessProfile = {
-        email: storedEmail || "user@costly3d.pro",
+        email: storedEmail.trim(),
         plan: "pro",
         betaExpiresAt: null,
         maxQuotes: 9999,
