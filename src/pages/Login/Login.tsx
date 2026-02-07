@@ -13,6 +13,7 @@ export default function Login() {
   const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [showModal, setShowModal] = useState(false);
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
   const readWaitlistCache = () => {
@@ -33,10 +34,12 @@ export default function Login() {
     if (cached?.status === "already_registered") {
       setSuccessMessage("Este correo ya estaba en la lista.");
       setStatus("success");
+      setShowModal(true);
       return;
     }
     setSuccessMessage("Listo, quedaste en la lista.");
     setStatus("success");
+    setShowModal(true);
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -48,6 +51,7 @@ export default function Login() {
       setSuccessMessage("Este correo ya estaba en la lista.");
       setStatus("success");
       setError("");
+      setShowModal(true);
       return;
     }
     if (!isValidEmail(trimmed)) {
@@ -57,7 +61,6 @@ export default function Login() {
     setError("");
     setSuccessMessage("");
     setStatus("submitting");
-    // Solo métricas: guardamos en waitlist, el acceso es inmediato.
     void sendBetaWaitlistEmail(trimmed);
     try {
       sessionStorage.setItem(
@@ -74,6 +77,7 @@ export default function Login() {
     }
     setSuccessMessage("Correo verificado. Ya puedes entrar a la app.");
     setStatus("success");
+    setShowModal(true);
   };
 
   return (
@@ -98,14 +102,9 @@ export default function Login() {
               {error}
             </div>
           )}
-          {status === "success" && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {successMessage || "Correo registrado. Ahora puedes entrar."}
-            </div>
-          )}
           <div className="flex flex-col gap-3">
             <Button type="submit" className="w-full" disabled={status === "submitting" || status === "success"}>
-              {status === "submitting" ? "Validando…" : "Validar correo"}
+              {status === "submitting" ? "Validando..." : "Validar correo"}
             </Button>
             <Button
               type="button"
@@ -118,6 +117,42 @@ export default function Login() {
           </div>
         </form>
       </Card>
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="text-2xl font-bold text-slate-900">¡Gracias por anotarte a la beta!</h2>
+            <p className="mt-3 text-sm text-slate-600">
+              En el siguiente botón puedes entrar a la app con todas las herramientas habilitadas.
+            </p>
+            <div className="mt-5 flex flex-col gap-3">
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setShowModal(false);
+                  navigate("/app");
+                }}
+              >
+                Entrar a la app
+              </Button>
+              <button
+                type="button"
+                className="text-sm text-slate-500 underline"
+                onClick={() => setShowModal(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
