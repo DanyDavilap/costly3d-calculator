@@ -86,7 +86,14 @@ import WikiLayout from "../../wiki/components/WikiLayout";
 import { CAFECITO_URL } from "../../config/links";
 import MakerAssistant from "../../components/MakerAssistant";
 
-type PrintStatus = "cotizada" | "en_produccion" | "finalizada_ok" | "finalizada_fallida";
+type KnownPrintStatus =
+  | "draft"
+  | "cotizada"
+  | "in_production"
+  | "en_produccion"
+  | "finalizada_ok"
+  | "finalizada_fallida";
+type PrintStatus = KnownPrintStatus | (string & {});
 type ProjectPieceStatus = "pendiente" | "impresa" | "fallida";
 
 interface FailureDetails {
@@ -266,6 +273,55 @@ const DEFAULT_MARKETING_PROFILE: MarketingProfile = {
   targetMargin: "",
 };
 
+const QUOTE_STATUS_KEYS = new Set([
+  "draft",
+  "cotizada",
+  "cotizado",
+  "cotizacion",
+  "cotizacion pro",
+  "quote",
+  "quotation",
+]);
+const PRODUCTION_STATUS_KEYS = new Set([
+  "in_production",
+  "en_produccion",
+  "en produccion",
+  "produccion",
+  "production",
+  "confirmado",
+]);
+const FINALIZED_OK_STATUS_KEYS = new Set([
+  "finalizada_ok",
+  "finalizada",
+  "finalizado_ok",
+  "produced",
+  "producido",
+  "finalizado",
+]);
+const FINALIZED_FAILED_STATUS_KEYS = new Set([
+  "finalizada_fallida",
+  "finalizada_fallido",
+  "fallida",
+  "fallido",
+  "failed",
+]);
+
+const normalizeStatusKey = (status: unknown) => {
+  if (typeof status !== "string") return "";
+  const trimmed = status.trim().toLowerCase();
+  return trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
+
+const isQuoteStatus = (status: unknown) => QUOTE_STATUS_KEYS.has(normalizeStatusKey(status));
+const isInProductionStatus = (status: unknown) => PRODUCTION_STATUS_KEYS.has(normalizeStatusKey(status));
+const isFinalizedOkStatus = (status: unknown) => FINALIZED_OK_STATUS_KEYS.has(normalizeStatusKey(status));
+const isFinalizedFailedStatus = (status: unknown) => FINALIZED_FAILED_STATUS_KEYS.has(normalizeStatusKey(status));
+const isKnownHistoryStatus = (status: unknown) =>
+  isQuoteStatus(status) ||
+  isInProductionStatus(status) ||
+  isFinalizedOkStatus(status) ||
+  isFinalizedFailedStatus(status);
+
 const loadStoredParams = (): PricingParams => {
   if (typeof window === "undefined") return DEFAULT_PARAMS;
   const saved = localStorage.getItem(PARAMS_STORAGE_KEY);
@@ -299,10 +355,21 @@ const buildStockMap = (records: HistoryRecord[]) => {
   return records.reduce<Record<string, number>>((acc, record) => {
     const key = getProductKey(record.name, record.category);
     const current = acc[key] ?? 0;
-    const available = record.status === "cotizada" ? record.quantity || 0 : 0;
+    const available = isQuoteStatus(record.status) ? record.quantity || 0 : 0;
     acc[key] = current + available;
     return acc;
   }, {});
+};
+
+const saveToyRecords = (records: HistoryRecord[]) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(records));
+  if (isDev()) {
+    console.log(
+      "[toyRecords/save]",
+      records.map((record) => ({ id: record.id, status: record.status })),
+    );
+  }
 };
 
 const normalizeHistoryRecord = (
@@ -319,19 +386,19 @@ const normalizeHistoryRecord = (
   const breakdown = raw.breakdown ?? pricingCalculator({ inputs, params });
   const quantity =
     typeof raw.quantity === "number" && Number.isFinite(raw.quantity) && raw.quantity >= 0 ? raw.quantity : 1;
-  const legacyStatus = String(
-    raw.status ?? ((raw as unknown as { sold?: boolean }).sold ? "sold" : "draft"),
-  );
-  const status: PrintStatus =
-    legacyStatus === "draft" || legacyStatus === "cotizado" || legacyStatus === "cotizada"
-      ? "cotizada"
-      : legacyStatus === "confirmado" || legacyStatus === "en_produccion"
-        ? "en_produccion"
-        : legacyStatus === "produced" || legacyStatus === "producido" || legacyStatus === "finalizado"
-          ? "finalizada_ok"
-          : legacyStatus === "fallido"
-            ? "finalizada_fallida"
-            : "cotizada";
+  const hasStoredStatus = typeof raw.status === "string" && raw.status.trim().length > 0;
+  const statusCandidate = hasStoredStatus
+    ? raw.status.trim()
+    : (raw as unknown as { sold?: boolean }).sold
+      ? "finalizada_ok"
+      : "draft";
+  if (hasStoredStatus && !isKnownHistoryStatus(statusCandidate) && isDev()) {
+    console.warn("[toyRecords/load] unknown status preserved", {
+      id: raw.id,
+      status: statusCandidate,
+    });
+  }
+  const status: PrintStatus = statusCandidate;
   const stockChanges = (raw.stockChanges ?? []).map((change: StockChange) => {
     const inferredReason = change.reason ?? (change.change < 0 ? "sold" : "restock");
     return {
@@ -391,9 +458,9 @@ const normalizeHistoryRecord = (
   const stockDeductedGrams =
     typeof (raw as HistoryRecord).stockDeductedGrams === "number"
       ? (raw as HistoryRecord).stockDeductedGrams
-      : status === "finalizada_ok"
+      : isFinalizedOkStatus(status)
         ? materialGramsUsed
-        : status === "finalizada_fallida"
+        : isFinalizedFailedStatus(status)
           ? failure?.lostGrams ?? failure?.gramsLost ?? 0
           : 0;
 
@@ -437,9 +504,18 @@ const loadStoredRecords = (fallbackParams: PricingParams): HistoryRecord[] => {
   try {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const normalizedRecords = parsed
       .map((record) => normalizeHistoryRecord(record, fallbackParams))
       .filter((record): record is HistoryRecord => Boolean(record));
+    if (isDev()) {
+      console.table(
+        normalizedRecords.map((record) => ({
+          id: record.id,
+          status: record.status,
+        })),
+      );
+    }
+    return normalizedRecords;
   } catch (error) {
     console.error("No se pudo cargar el historial", error);
     return [];
@@ -1197,7 +1273,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const adjustedStock = demoStock.map((spool) => {
       const deducted = demoRecords.reduce((sum, record) => {
         if (record.selectedMaterialId !== spool.id) return sum;
-        if (record.status === "cotizada") return sum;
+        if (isQuoteStatus(record.status)) return sum;
         return sum + (record.stockDeductedGrams ?? 0);
       }, 0);
       return {
@@ -1231,15 +1307,14 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }
 
     if (devResetTarget === "quotes" || devResetTarget === "production" || devResetTarget === "failed") {
-      const statusToRemove =
+      const filtered = records.filter((record) =>
         devResetTarget === "quotes"
-          ? "cotizada"
+          ? !isQuoteStatus(record.status)
           : devResetTarget === "production"
-            ? "en_produccion"
-            : "finalizada_fallida";
-      const filtered = records.filter((record) => record.status !== statusToRemove);
-      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(filtered));
-      localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(buildStockMap(filtered)));
+            ? !isInProductionStatus(record.status)
+            : !isFinalizedFailedStatus(record.status),
+      );
+      persistHistory(filtered, { allowDuplicateSignature: true });
     }
 
     closeDevResetModal();
@@ -1411,7 +1486,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   const recentQuotes = useMemo(() => {
     const entries = records
-      .filter((record) => record.status === "finalizada_ok")
+      .filter((record) => isFinalizedOkStatus(record.status))
       .map((record) => {
         const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
         const revenue = (record.total || record.breakdown.finalPrice) * quantity;
@@ -1643,7 +1718,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       const parsed = parseRecordDate(record.date);
       if (!parsed) return;
       if (now - parsed.getTime() > windowMs) return;
-      if (record.status !== "finalizada_ok" && record.status !== "finalizada_fallida") return;
+      if (!isFinalizedOkStatus(record.status) && !isFinalizedFailedStatus(record.status)) return;
       const quantity = typeof record.quantity === "number" && record.quantity > 0 ? record.quantity : 1;
       recentAttempts += quantity;
       const minutes = Number.isFinite(record.inputs?.timeMinutes) ? record.inputs.timeMinutes : 0;
@@ -1905,16 +1980,19 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const getStatusBadge = (status: HistoryRecord["status"]) => {
-    switch (status) {
-      case "en_produccion":
-        return { label: "En producción", className: "bg-indigo-100 text-indigo-700" };
-      case "finalizada_ok":
-        return { label: "Finalizada OK", className: "bg-green-100 text-green-700" };
-      case "finalizada_fallida":
-        return { label: "Finalizada fallida", className: "bg-red-100 text-red-700" };
-      default:
-        return { label: "Cotizada", className: "bg-yellow-100 text-yellow-700" };
+    if (isInProductionStatus(status)) {
+      return { label: "En producción", className: "bg-indigo-100 text-indigo-700" };
     }
+    if (isFinalizedOkStatus(status)) {
+      return { label: "Finalizada OK", className: "bg-green-100 text-green-700" };
+    }
+    if (isFinalizedFailedStatus(status)) {
+      return { label: "Finalizada fallida", className: "bg-red-100 text-red-700" };
+    }
+    if (isQuoteStatus(status)) {
+      return { label: "Cotizada", className: "bg-yellow-100 text-yellow-700" };
+    }
+    return { label: String(status || "Sin estado"), className: "bg-slate-100 text-slate-700" };
   };
 
   const handleSaveSpool = () => {
@@ -2038,13 +2116,32 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         return false;
       }
     }
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newRecords));
+    saveToyRecords(newRecords);
     localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(buildStockMap(newRecords)));
     setRecords(newRecords);
     if (isGrowing && options?.signature && !options.allowDuplicateSignature) {
       lastSavedSignatureRef.current = options.signature;
     }
     return true;
+  };
+
+  const updateRecordStatus = (
+    recordId: string,
+    newStatus: PrintStatus,
+    updates?: Partial<Omit<HistoryRecord, "id" | "status">>,
+  ) => {
+    let found = false;
+    const nextRecords = records.map((record) => {
+      if (record.id !== recordId) return record;
+      found = true;
+      return {
+        ...record,
+        ...(updates ?? {}),
+        status: newStatus,
+      };
+    });
+    if (!found) return false;
+    return persistHistory(nextRecords);
   };
 
   const buildPdfDataFromResult = () => {
@@ -2618,7 +2715,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   const handleConfirmProduction = () => {
     if (!confirmTarget) return;
-    if (confirmTarget.status !== "cotizada") {
+    if (!isQuoteStatus(confirmTarget.status)) {
       closeConfirmModal();
       return;
     }
@@ -2626,18 +2723,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       closeConfirmModal();
       return;
     }
-    const nextRecords = records.map((record) =>
-      record.id === confirmTarget.id
-        ? {
-            ...record,
-            status: "en_produccion" as const,
-            stockDeductedGrams: 0,
-            startedAt: null,
-            completedAt: null,
-          }
-        : record,
-    );
-    const saved = persistHistory(nextRecords);
+    const saved = updateRecordStatus(confirmTarget.id, "in_production", {
+      stockDeductedGrams: 0,
+      startedAt: null,
+      completedAt: null,
+      failure: null,
+    });
     if (saved) {
       applyBetaConsumption("production");
     }
@@ -2661,7 +2752,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const beginProduction = (record: HistoryRecord, overrideMaterialId?: string) => {
-    if (record.status !== "en_produccion") return;
+    if (!isInProductionStatus(record.status)) return;
     if (record.startedAt) return;
     const selectedId = overrideMaterialId ?? record.selectedMaterialId ?? "";
     const required = getRequiredGramsForRecord(record);
@@ -2700,14 +2791,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const finalizeProduction = (record: HistoryRecord) => {
-    if (record.status !== "en_produccion") return;
+    if (!isInProductionStatus(record.status)) return;
     if (!record.startedAt) return;
-    const nextRecords = records.map((item) =>
-      item.id === record.id
-        ? { ...item, status: "finalizada_ok" as const, completedAt: new Date().toISOString() }
-        : item,
-    );
-    persistHistory(nextRecords);
+    updateRecordStatus(record.id, "finalizada_ok", { completedAt: new Date().toISOString() });
   };
 
   const handleMarkFinalized = (record: HistoryRecord) => {
@@ -2716,7 +2802,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   const handleConfirmFailure = () => {
     if (!failureTarget) return;
-    if (failureTarget.status !== "en_produccion") {
+    if (!isInProductionStatus(failureTarget.status)) {
       closeFailureModal();
       return;
     }
@@ -2761,23 +2847,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       reason: failureNote.trim() || undefined,
       note: failureNote.trim() || undefined,
     };
-    const nextRecords = records.map((item) =>
-      item.id === failureTarget.id
-        ? {
-            ...item,
-            status: "finalizada_fallida" as const,
-            failure: failureDetails,
-            stockDeductedGrams: isDemoSpool ? 0 : lostGrams,
-            completedAt: new Date().toISOString(),
-          }
-        : item,
-    );
-    persistHistory(nextRecords);
+    updateRecordStatus(failureTarget.id, "finalizada_fallida", {
+      failure: failureDetails,
+      stockDeductedGrams: isDemoSpool ? 0 : lostGrams,
+      completedAt: new Date().toISOString(),
+    });
     closeFailureModal();
   };
 
   const openRecord = (record: HistoryRecord) => {
-    if (record.status !== "cotizada") {
+    if (!isQuoteStatus(record.status)) {
       toast.info("Esta cotización ya fue procesada y no se puede editar.", {
         duration: 2500,
       });
@@ -2808,7 +2887,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       toast.error("No encontramos la cotización seleccionada.");
       return;
     }
-    if (original.status === "en_produccion") {
+    if (isInProductionStatus(original.status)) {
       toast.info("No podés duplicar una cotización en producción.", { duration: 2500 });
       return;
     }
@@ -2871,7 +2950,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const duplicateProduction = (record: HistoryRecord) => {
-    if (record.status !== "finalizada_ok" && record.status !== "finalizada_fallida") return;
+    if (!isFinalizedOkStatus(record.status) && !isFinalizedFailedStatus(record.status)) return;
     if (!ensureBetaQuota("production")) {
       return;
     }
@@ -2880,7 +2959,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("es-AR"),
       createdAt: new Date().toISOString(),
-      status: "en_produccion",
+      status: "in_production",
       stockDeductedGrams: 0,
       startedAt: null,
       completedAt: null,
@@ -2897,7 +2976,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const deleteRecord = (record: HistoryRecord) => {
-    if (record.status !== "cotizada" && !isDev()) {
+    if (!isQuoteStatus(record.status) && !isDev()) {
       toast.info("Solo podés eliminar cotizaciones en estado cotizada.", { duration: 2500 });
       return;
     }
@@ -2909,8 +2988,8 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }
   };
 
-  const revenueRecords = records.filter((record) => record.status === "finalizada_ok");
-  const failedRecords = records.filter((record) => record.status === "finalizada_fallida");
+  const revenueRecords = records.filter((record) => isFinalizedOkStatus(record.status));
+  const failedRecords = records.filter((record) => isFinalizedFailedStatus(record.status));
 
   const reportMonthLabel = MONTH_NAMES[reportMonth] ?? "";
   const monthlyRecords = revenueRecords.filter((record) => {
@@ -2942,7 +3021,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       const tiempoTotal = (record.inputs.timeMinutes / 60) * quantity;
       const filamentoTotal = getRequiredGramsForRecord(record);
       const energiaTotal = record.breakdown.energyCost * quantity;
-      const isFailed = record.status === "finalizada_fallida";
+      const isFailed = isFinalizedFailedStatus(record.status);
       const porcentajeCompletado = isFailed ? (record.failure?.percentPrinted ?? 0) / 100 : 1;
       return {
         estado: isFailed ? "fallida" : "terminada",
@@ -3006,18 +3085,20 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   const materialConsumptionRows = materialConsumptionSummary.comboRows;
   const materialConsumptionByMaterial = materialConsumptionSummary.materialRows;
+  const quoteRecords = records.filter((record) => isQuoteStatus(record.status));
   const productionRecords = records.filter(
     (record) =>
-      record.status === "en_produccion" ||
-      record.status === "finalizada_ok" ||
-      record.status === "finalizada_fallida",
+      isInProductionStatus(record.status) ||
+      (!isQuoteStatus(record.status) &&
+        !isFinalizedOkStatus(record.status) &&
+        !isFinalizedFailedStatus(record.status)),
   );
   const tableRecords =
     activeSection === "production"
       ? productionRecords
       : activeSection === "reports"
         ? monthlyReportRecords
-        : records;
+        : quoteRecords;
   const historyTitle =
     activeSection === "production"
       ? "Producción"
@@ -4534,13 +4615,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           const priceValue =
                             isReportView && reportItem
                               ? reportItem.revenueItem
-                              : record.status === "finalizada_fallida"
+                              : isFinalizedFailedStatus(record.status)
                                 ? 0
                                 : record.breakdown.finalPrice;
                           const profitValue =
                             isReportView && reportItem
                               ? reportItem.netProfitItem
-                              : record.status === "finalizada_fallida"
+                              : isFinalizedFailedStatus(record.status)
                                 ? 0
                                 : record.breakdown.profit;
                           const profitClass =
@@ -4637,9 +4718,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                 )}
                                 {!isReportView &&
                                   activeSection === "quotations" &&
-                                  (record.status === "cotizada" ||
-                                    record.status === "finalizada_ok" ||
-                                    record.status === "finalizada_fallida") && (
+                                  isQuoteStatus(record.status) && (
                                     <button
                                       type="button"
                                       onClick={(event) => {
@@ -4653,7 +4732,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                       <Copy size={18} />
                                     </button>
                                   )}
-                                {!isReportView && record.status === "cotizada" && (
+                                {!isReportView && isQuoteStatus(record.status) && (
                                   <>
                                     <button
                                       type="button"
@@ -4693,7 +4772,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                     </button>
                                   </>
                                 )}
-                                {!isReportView && activeSection === "production" && record.status === "en_produccion" && (
+                                {!isReportView &&
+                                  activeSection === "production" &&
+                                  isInProductionStatus(record.status) && (
                                   <>
                                     {!record.startedAt ? (
                                       <button
@@ -4740,7 +4821,8 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                 )}
                                 {!isReportView &&
                                   activeSection === "production" &&
-                                  (record.status === "finalizada_ok" || record.status === "finalizada_fallida") && (
+                                  (isFinalizedOkStatus(record.status) ||
+                                    isFinalizedFailedStatus(record.status)) && (
                                     <button
                                       type="button"
                                       onClick={(event) => {
@@ -4756,7 +4838,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                   )}
                                 {!isReportView &&
                                   activeSection === "production" &&
-                                  record.status === "finalizada_fallida" && (
+                                  isFinalizedFailedStatus(record.status) && (
                                     <button
                                       type="button"
                                       onClick={(event) => {
@@ -4771,7 +4853,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                       Falla
                                     </button>
                                   )}
-                                {isReportView && record.status === "finalizada_fallida" && (
+                                {isReportView && isFinalizedFailedStatus(record.status) && (
                                   <button
                                     type="button"
                                     onClick={(event) => {
