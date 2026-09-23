@@ -85,6 +85,7 @@ import { CAFECITO_URL } from "../../config/links";
 import MakerAssistant from "../../components/MakerAssistant";
 import QuickQuoteIntro from "../../components/quotes/QuickQuoteIntro";
 import QuickFinishEditor, { type QuickFinishType } from "../../components/quotes/QuickFinishEditor";
+import MaterialPricesEditor from "../../components/quotes/MaterialPricesEditor";
 import {
   COLOMBIA_REGIONAL_CONFIG,
   LEGACY_ARGENTINA_REGIONAL_CONFIG,
@@ -131,6 +132,12 @@ import {
   saveMachines,
 } from "../../persistence/businessSetupPersistence";
 import { loadSales, saveSales } from "../../persistence/salesPersistence";
+import {
+  DEFAULT_MATERIAL_PRICES,
+  loadMaterialPrices,
+  saveMaterialPrices,
+  type MaterialPriceMap,
+} from "../../persistence/costProfilePersistence";
 import {
   calculateDashboardPricingV2,
   type DashboardPricingParamsV2,
@@ -860,6 +867,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const [materialWeight, setMaterialWeight] = useState("");
   const [quoteQuantity, setQuoteQuantity] = useState("1");
   const [selectedMaterialId, setSelectedMaterialId] = useState(DEFAULT_PROFILE_MATERIAL_ID);
+  const [materialPrices, setMaterialPrices] = useState<MaterialPriceMap>(() =>
+    typeof window === "undefined"
+      ? DEFAULT_MATERIAL_PRICES
+      : loadMaterialPrices(window.localStorage),
+  );
   const [selectedMachineId, setSelectedMachineId] = useState("");
   const [stockError, setStockError] = useState("");
   const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
@@ -997,6 +1009,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   useEffect(() => {
     saveEconomicSettings(localStorage, economicSettings);
   }, [economicSettings]);
+
+  useEffect(() => {
+    saveMaterialPrices(localStorage, materialPrices);
+  }, [materialPrices]);
 
   useEffect(() => {
     saveSales(localStorage, sales);
@@ -1141,6 +1157,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const selectedMachine = machines.find((machine) => machine.id === selectedMachineId && machine.enabled);
   const selectedMaterial = materialStock.find((material) => material.id === selectedMaterialId && material.enabled);
   const selectedProfileMaterial = findProfileMaterial(selectedMaterialId);
+  const selectedMaterialReference = selectedProfileMaterial
+    ?? findProfileMaterialByType(selectedMaterial?.materialType)
+    ?? COSTLY_STANDARD_PROFILE.materials[0];
+  const selectedMaterialCostPerKg = isConfiguredRate(selectedMaterial?.costPerKg) && selectedMaterial?.currency === "COP"
+    ? selectedMaterial.costPerKg
+    : materialPrices[selectedMaterialReference.materialType];
   const businessSetupStatus = calculateBusinessSetupStatus({
     machines,
     materials: materialStock,
@@ -1199,11 +1221,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       : undefined;
     const profileMaterial = findProfileMaterial(materialId) ?? findProfileMaterialByType(spool?.materialType)
       ?? COSTLY_STANDARD_PROFILE.materials[0];
+    const profileMaterialCost = materialPrices[profileMaterial.materialType];
     const machine = machines.find((item) => item.id === selectedMachineId && item.enabled);
     const quantity = quantityOverride ?? Number.parseInt(quoteQuantity, 10);
     const effectiveParams: ActivePricingParams = {
       ...paramsSnapshot,
-      filamentCostPerKg: profileMaterial.costPerKg,
+      filamentCostPerKg: profileMaterialCost,
       powerWatts: machine?.powerWatts ?? (paramsSnapshot.powerWatts > 0 ? paramsSnapshot.powerWatts : COSTLY_STANDARD_PROFILE.electricity.powerWatts),
       machineCostPerHour: machine?.machineCostPerHour ?? 0,
       printingLaborCostPerHour: economicSettings.labor.value ?? (paramsSnapshot.laborPerHour > 0 ? paramsSnapshot.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
@@ -1233,7 +1256,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         costPerKg:
           spool?.currency === "COP" && isConfiguredRate(spool.costPerKg)
             ? spool.costPerKg
-            : profileMaterial.costPerKg,
+            : profileMaterialCost,
         costContextDate:
           spool?.currency === "COP" ? spool.costContextDate : undefined,
         brand: spool?.brand,
@@ -3123,6 +3146,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     params,
     selectedMaterialId,
     materialStock,
+    materialPrices,
     machines,
     selectedMachineId,
     economicSettings,
@@ -4362,7 +4386,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
               exit={{ opacity: 0, x: 20 }}
               className="max-w-4xl mx-auto"
             >
-              <QuickQuoteIntro profileName={COSTLY_STANDARD_PROFILE.name} />
+              <QuickQuoteIntro />
+              <MaterialPricesEditor
+                prices={materialPrices}
+                onChange={(material, value) => setMaterialPrices((current) => ({ ...current, [material]: value }))}
+              />
               <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
                   <Sparkles className="text-yellow-500" />
@@ -4444,10 +4472,8 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         </optgroup>
                       )}
                     </select>
-                    <p className="mt-2 text-xs text-gray-500">
-                      {selectedMaterial
-                        ? "Usaremos tu costo guardado cuando esté disponible; si no, el perfil estándar."
-                        : `${selectedProfileMaterial?.label ?? "PLA estándar"} está listo para cotizar.`}
+                    <p className="mt-2 text-xs font-medium text-emerald-700">
+                      Costo usado: {formatCurrency(selectedMaterialCostPerKg)} por kg
                     </p>
                     {stockError && <p className="text-xs text-red-500 mt-2">{stockError}</p>}
                   </div>
@@ -4455,7 +4481,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
                 <div className="mt-10 border-t border-gray-100 pt-8">
                   <div className="mb-6">
-                    <h3 className="text-xl font-semibold text-gray-900">Unidades y acabados</h3>
+                    <h3 className="text-xl font-semibold text-gray-900">Unidades</h3>
                     <p className="text-sm text-gray-500">
                       Todo es por unidad. Costly multiplica automáticamente el total de la cotización.
                     </p>
@@ -4474,16 +4500,19 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     <p className="mt-2 text-xs text-gray-500">Los tiempos, gramos y costos ingresados son por unidad.</p>
                   </div>
 
-                  <QuickFinishEditor
-                    tasks={laborTasks}
-                    onAdd={addQuickFinish}
-                    onChange={(id, updates) => setLaborTasks((current) =>
-                      current.map((item) => item.id === id ? { ...item, ...updates } : item)
-                    )}
-                    onRemove={(id) => setLaborTasks((current) => current.filter((item) => item.id !== id))}
-                  />
+                  <details className="mt-5">
+                    <summary className="cursor-pointer text-sm font-semibold text-blue-700">+ Agregar acabados opcionales</summary>
+                    <QuickFinishEditor
+                      tasks={laborTasks}
+                      onAdd={addQuickFinish}
+                      onChange={(id, updates) => setLaborTasks((current) =>
+                        current.map((item) => item.id === id ? { ...item, ...updates } : item)
+                      )}
+                      onRemove={(id) => setLaborTasks((current) => current.filter((item) => item.id !== id))}
+                    />
+                  </details>
 
-                  <details className="mt-6 rounded-2xl border border-gray-200 bg-slate-50 p-5">
+                  <details className="hidden">
                     <summary className="cursor-pointer font-semibold text-gray-800">Ver cómo calculamos este valor</summary>
                     <p className="mt-2 text-sm text-gray-600">
                       El perfil {COSTLY_STANDARD_PROFILE.name} completa automáticamente material, electricidad, desgaste, trabajo de impresión, reserva por fallos y estrategia de precio.
@@ -4634,12 +4663,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                   </div>
                     </div>
                   </details>
-                  <button type="button" onClick={() => setActiveSection("settings")} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-800">
+                  <button type="button" onClick={() => setActiveSection("settings")} className="hidden">
                     <Settings size={17} /> Personalizar mis costos
                   </button>
                 </div>
 
-                <details className="mt-4 rounded-2xl border border-gray-200 p-5">
+                <details className="hidden">
                   <summary className="cursor-pointer text-sm font-semibold text-gray-700">Más opciones de costos</summary>
                 <div className="mt-5 grid gap-6 lg:grid-cols-2">
                   <div className="rounded-2xl border border-gray-200 p-5">
@@ -4759,7 +4788,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <h2 className="text-3xl font-bold">{toyName || "Producto"}</h2>
                     </div>
 
-                    <div className={`mb-6 rounded-2xl border px-4 py-4 ${result.reliability.level === "complete" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                    <div className="hidden">
                       <div className="flex items-center gap-2 font-semibold">
                         {result.reliability.level === "complete" ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
                         Cotización {result.reliability.level === "complete" ? "completa" : "parcial"}
@@ -4813,7 +4842,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       )}
                     </AnimatePresence>
 
-                    <div className="grid md:grid-cols-2 gap-4 mb-6">
+                    <div className="grid gap-4 mb-6 md:grid-cols-3">
                       <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <Package size={20} />
@@ -4838,7 +4867,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         <p className="text-2xl font-bold">{formatCurrency(result.breakdown.finalPrice)}</p>
                       </div>
 
-                      <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                      <div className="hidden">
                         <div className="flex items-center gap-2 mb-2">
                           <Clock size={20} />
                           <span className="text-sm font-medium">Tiempo y unidades</span>
@@ -4858,15 +4887,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       </div>
                     )}
 
-                    <div className="bg-white text-gray-800 rounded-xl p-6 mb-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <DollarSign size={18} className="text-blue-500" />
-                          <h3 className="text-lg font-semibold">Desglose</h3>
-                        </div>
-                        <span className="text-xs text-gray-500">Valores por unidad · snapshot guardado</span>
-                      </div>
-                      <div className="grid md:grid-cols-2 gap-3 text-sm">
+                    <details className="mb-6 rounded-xl bg-white p-6 text-gray-800">
+                      <summary className="cursor-pointer font-semibold text-blue-700">Ver desglose completo</summary>
+                      <div className="mt-5 grid gap-3 text-sm md:grid-cols-2">
                         <div className="flex items-center justify-between">
                           <span className="text-gray-600">Costo de material</span>
                           <span className="font-semibold">
@@ -4924,9 +4947,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           <span>{formatCurrency(result.breakdown.finalPrice)}</span>
                         </div>
                       </div>
-                    </div>
+                    </details>
 
-                    <div className="bg-white text-gray-800 rounded-xl p-6 mb-6">
+                    <div className="hidden">
                       <div className="text-center">
                         <p className="text-sm font-medium mb-2">Precio sugerido por unidad</p>
                         <p className="text-5xl font-bold text-green-600">{formatCurrency(result.breakdown.finalPrice)}</p>

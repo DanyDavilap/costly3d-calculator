@@ -7,6 +7,7 @@ export const FINANCIAL_STORAGE_KEYS = [
   "marketingProfile",
   "machinesV2",
   "businessEconomicSettingsV2",
+  "costlyMaterialPricesV1",
   "salesV1",
 ] as const;
 
