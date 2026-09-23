@@ -7,6 +7,14 @@ export type BetaAccessResult = {
   message?: string;
 };
 
+type BetaAccessPayload = {
+  ok?: boolean;
+  approved?: boolean;
+  reason?: "pending" | "not_found";
+  error?: string;
+  message?: string;
+};
+
 export async function checkBetaAccess(email: string): Promise<BetaAccessResult> {
   try {
     const res = await fetch(
@@ -22,16 +30,10 @@ export async function checkBetaAccess(email: string): Promise<BetaAccessResult> 
     );
 
     const raw = await res.text();
-    let data: {
-      ok?: boolean;
-      approved?: boolean;
-      reason?: "pending" | "not_found";
-      error?: string;
-      message?: string;
-    } | null = null;
+    let data: BetaAccessPayload | null = null;
 
     try {
-      data = raw ? (JSON.parse(raw) as typeof data) : null;
+      data = raw ? (JSON.parse(raw) as BetaAccessPayload) : null;
     } catch {
       data = null;
     }

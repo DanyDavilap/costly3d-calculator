@@ -26,6 +26,20 @@ export interface PricingBreakdown {
   totalCost: number;
   profit: number;
   finalPrice: number;
+  netMaterialCost?: number;
+  wasteMaterialCost?: number;
+  wasteGrams?: number;
+  billableGrams?: number;
+  energyKwh?: number;
+  machineCost?: number;
+  printingLaborCost?: number;
+  finishingLaborCost?: number;
+  failureReserveCost?: number;
+  additionalCost?: number;
+  mathematicalPrice?: number;
+  commercialPrice?: number;
+  resultingMarkupPercent?: number;
+  resultingMarginPercent?: number;
 }
 
 export function pricingCalculator({

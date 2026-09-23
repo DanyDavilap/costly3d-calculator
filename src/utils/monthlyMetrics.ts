@@ -1,7 +1,12 @@
+import { calculateActualSalesMetrics } from "../core/salesMetrics";
+import type { SupportedCurrency } from "../config/regional";
+import type { Sale } from "../domain/sales";
+
 export type MonthlyMetricsRecord = {
   id: string;
   date: string;
   status: string;
+  currency?: SupportedCurrency;
   quantity?: number;
   total?: number;
   productName?: string;
@@ -46,10 +51,23 @@ export type MonthlyMetricsItem = {
 };
 
 export type MonthlyMetricsTotals = {
+  /** @deprecated Compatibilidad v1: equivale a ingresosEstimadosTotal. */
   ingresosTotal: number;
+  ingresosEstimadosTotal: number;
+  ingresosRealesTotal: number;
+  hasActualSales: boolean;
+  ventasRegistradas: number;
+  unidadesVendidas: number;
+  costosVentasRealesTotal: number;
+  utilidadReal: number;
+  margenRealPct: number;
   costosVentasTotal: number;
   perdidasFallasTotal: number;
+  rentabilidadEstimada: number;
+  margenEstimadoPct: number;
+  /** @deprecated Compatibilidad v1: equivale a rentabilidadEstimada. */
   rentabilidadNetaReal: number;
+  /** @deprecated Compatibilidad v1: equivale a margenEstimadoPct. */
   margenNetoRealPct: number;
   gramosConsumidos: number;
   gramosDesperdiciados: number;
@@ -171,12 +189,19 @@ const resolveFailureCost = (record: MonthlyMetricsRecord, quantity: number) => {
   return costPerUnit * quantity;
 };
 
-export const calculateMonthlyMetrics = (records: MonthlyMetricsRecord[]): MonthlyMetricsResult => {
+export const calculateMonthlyMetrics = (
+  records: MonthlyMetricsRecord[],
+  sales: Sale[] = [],
+): MonthlyMetricsResult => {
   const items: MonthlyMetricsItem[] = [];
   const productMap = new Map<string, MonthlyProductMetric>();
 
   records
-    .filter((record) => record.status === "finalizada_ok" || record.status === "finalizada_fallida")
+    .filter(
+      (record) =>
+        (!record.currency || record.currency === "COP") &&
+        (record.status === "finalizada_ok" || record.status === "finalizada_fallida"),
+    )
     .forEach((record) => {
       const isOk = record.status === "finalizada_ok";
       const isFailed = record.status === "finalizada_fallida";
@@ -255,8 +280,18 @@ export const calculateMonthlyMetrics = (records: MonthlyMetricsRecord[]): Monthl
     },
     {
       ingresosTotal: 0,
+      ingresosEstimadosTotal: 0,
+      ingresosRealesTotal: 0,
+      hasActualSales: false,
+      ventasRegistradas: 0,
+      unidadesVendidas: 0,
+      costosVentasRealesTotal: 0,
+      utilidadReal: 0,
+      margenRealPct: 0,
       costosVentasTotal: 0,
       perdidasFallasTotal: 0,
+      rentabilidadEstimada: 0,
+      margenEstimadoPct: 0,
       rentabilidadNetaReal: 0,
       margenNetoRealPct: 0,
       gramosConsumidos: 0,
@@ -267,10 +302,21 @@ export const calculateMonthlyMetrics = (records: MonthlyMetricsRecord[]): Monthl
     },
   );
 
-  totals.rentabilidadNetaReal =
+  totals.ingresosEstimadosTotal = totals.ingresosTotal;
+  const actualSales = calculateActualSalesMetrics(sales);
+  totals.ingresosRealesTotal = actualSales.actualRevenue;
+  totals.hasActualSales = actualSales.saleCount > 0;
+  totals.ventasRegistradas = actualSales.saleCount;
+  totals.unidadesVendidas = actualSales.unitsSold;
+  totals.costosVentasRealesTotal = actualSales.associatedCosts;
+  totals.utilidadReal = actualSales.actualProfit;
+  totals.margenRealPct = actualSales.actualMarginPercent;
+  totals.rentabilidadEstimada =
     totals.ingresosTotal - totals.costosVentasTotal - totals.perdidasFallasTotal;
-  totals.margenNetoRealPct =
-    totals.ingresosTotal > 0 ? (totals.rentabilidadNetaReal / totals.ingresosTotal) * 100 : 0;
+  totals.margenEstimadoPct =
+    totals.ingresosTotal > 0 ? (totals.rentabilidadEstimada / totals.ingresosTotal) * 100 : 0;
+  totals.rentabilidadNetaReal = totals.rentabilidadEstimada;
+  totals.margenNetoRealPct = totals.margenEstimadoPct;
   const attempts = totals.okCount + totals.failedCount;
   totals.tasaFallas = attempts > 0 ? (totals.failedCount / attempts) * 100 : 0;
 

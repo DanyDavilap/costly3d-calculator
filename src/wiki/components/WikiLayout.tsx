@@ -4,7 +4,12 @@ import { loadWikiContent } from "../data/wikiIndex";
 import WikiSidebar from "./WikiSidebar";
 import WikiContent from "./WikiContent";
 
-export default function WikiLayout() {
+type WikiLayoutProps = {
+  isProEnabled?: boolean;
+  onUnlockPro?: () => void;
+};
+
+export default function WikiLayout(_props: WikiLayoutProps) {
   const availableGroups = wikiGroups;
   const initialSectionId = useMemo(
     () => availableGroups[0]?.sections[0]?.id ?? defaultWikiSectionId,

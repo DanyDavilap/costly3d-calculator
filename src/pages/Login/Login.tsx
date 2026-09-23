@@ -23,7 +23,7 @@ export default function Login() {
       const saved = sessionStorage.getItem(BETA_WAITLIST_KEY);
       if (!saved) return null;
       return JSON.parse(saved) as { email?: string; status?: "registered" | "already_registered" } | null;
-    } catch (storageError) {
+    } catch {
       return null;
     }
   };
@@ -70,15 +70,26 @@ export default function Login() {
     setSuccessMessage("");
     setStatus("submitting");
 
-    void sendBetaWaitlistEmail(trimmed);
-    await loginWithEmail(trimmed);
+    const waitlistResult = await sendBetaWaitlistEmail(trimmed);
+    if (waitlistResult.status === "error") {
+      setError(waitlistResult.message);
+      setStatus("idle");
+      return;
+    }
+
+    const loginResult = await loginWithEmail(trimmed);
+    if (loginResult.status === "error" || loginResult.status === "beta_full") {
+      setError(loginResult.message || "No pudimos habilitar el acceso a la aplicación.");
+      setStatus("idle");
+      return;
+    }
 
     try {
       sessionStorage.setItem(
         BETA_WAITLIST_KEY,
         JSON.stringify({
           email: trimmed,
-          status: "registered",
+          status: waitlistResult.status,
           createdAt: new Date().toISOString(),
           source: "login_waitlist",
         }),
@@ -87,7 +98,7 @@ export default function Login() {
       /* ignore storage errors */
     }
 
-    setSuccessMessage("Correo verificado. Ya puedes entrar a la app.");
+    setSuccessMessage(waitlistResult.message || "Correo verificado. Ya puedes entrar a la app.");
     setStatus("success");
     setShowModal(true);
   };
@@ -146,7 +157,7 @@ export default function Login() {
           >
             <h2 className="text-2xl font-bold text-slate-900">¡Gracias por anotarte a la beta!</h2>
             <p className="mt-3 text-sm text-slate-600">
-              En el siguiente botón puedes entrar a la app con todas las herramientas habilitadas.
+              {successMessage || "En el siguiente botón puedes entrar a la app con todas las herramientas habilitadas."}
             </p>
             <div className="mt-5 flex flex-col gap-3">
               <Button

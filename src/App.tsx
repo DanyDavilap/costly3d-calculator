@@ -40,7 +40,12 @@ function AppShell() {
       return;
     }
     setMessage(result.message || "Listo, quedaste en la lista.");
-    await loginWithEmail(trimmed);
+    const loginResult = await loginWithEmail(trimmed);
+    if (loginResult.status === "error" || loginResult.status === "beta_full") {
+      setError(loginResult.message || "No pudimos habilitar el acceso a la aplicación.");
+      setStatus("idle");
+      return;
+    }
     setStatus("idle");
     setEmailModalOpen(false);
     setSuccessModalOpen(true);

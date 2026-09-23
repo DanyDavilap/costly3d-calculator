@@ -2,6 +2,12 @@
 import * as XLSX from "xlsx";
 import type { BrandingInfo } from "./brandingActivation";
 import type { MonthlyMetricsTotals, MonthlyReportSummary } from "./monthlyMetrics";
+import {
+  formatDate as formatRegionalDate,
+  formatMoney as formatRegionalMoney,
+  formatNumber as formatRegionalNumber,
+  type SupportedCurrency,
+} from "../config/regional";
 
 export type ReporteDetalleRow = {
   fecha: string;
@@ -21,6 +27,7 @@ export type ReporteDetalleRow = {
   costoMaterialPerdido: number;
   costoEnergiaPerdida: number;
   notaFallo: string;
+  currency: SupportedCurrency;
 };
 
 export type ReporteConsumoRow = {
@@ -31,6 +38,7 @@ export type ReporteConsumoRow = {
 };
 
 export type ReporteExportData = {
+  currency: SupportedCurrency;
   periodoLabel: string;
   periodoKey: string;
   ingresos: MonthlyReportSummary["ingresos"];
@@ -73,15 +81,17 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
   }
   resumenRows.push(
     ["Reporte mensual", reporteData.periodoLabel],
+    ["Moneda de totales", `${reporteData.currency} (los históricos ARS no se suman)`],
     [],
-    ["Ingresos totales", reporteData.ingresos.total],
+    ["Ingresos estimados", reporteData.ingresos.total],
+    ["Ingresos reales", reporteData.totales.ingresosRealesTotal],
     ["Costos ventas", reporteData.totales.costosVentasTotal],
     ["Perdidas totales", reporteData.perdidas.total],
     ["Filamento desperdiciado (g)", reporteData.perdidas.filamentoDesperdiciadoGramos],
     ["Piezas fallidas", reporteData.perdidas.piezasFallidas],
     ["Consumo total (g)", reporteData.consumoFilamento.totalGramos],
-    ["Rentabilidad neta", reporteData.rentabilidadNeta.neto],
-    ["Margen neto (%)", reporteData.rentabilidadNeta.margenPct],
+    ["Rentabilidad estimada", reporteData.rentabilidadNeta.neto],
+    ["Margen estimado (%)", reporteData.rentabilidadNeta.margenPct],
   );
   const resumenSheet = XLSX.utils.aoa_to_sheet(resumenRows);
   XLSX.utils.book_append_sheet(workbook, resumenSheet, "Resumen");
@@ -93,9 +103,10 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
     "Estado",
     "Tiempo (min)",
     "Material (g)",
-    "Costo Total",
-    "Precio Venta",
-    "Ganancia",
+    "Costo estimado",
+    "Precio sugerido",
+    "Utilidad estimada",
+    "Moneda",
     "Material",
     "Color",
     "Marca",
@@ -115,6 +126,7 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
     row.costoTotal,
     row.precioVenta,
     row.ganancia,
+    row.currency,
     row.material,
     row.color,
     row.marca,
@@ -128,7 +140,7 @@ export const exportarExcel = (reporteData: ReporteExportData) => {
   XLSX.utils.book_append_sheet(workbook, detalleSheet, "Detalle");
 
   const topRows = [
-    ["Producto", "Ingresos", "Unidades", "Margen %"],
+    ["Producto", "Ingresos estimados", "Unidades", "Margen estimado %"],
     ...reporteData.topProductos.items.map((item) => [
       item.name,
       item.ingresos,
@@ -170,11 +182,13 @@ export const exportarPDF = async (
   let cursorY = margin;
 
   const formatMoney = (value: number) =>
-    new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0 }).format(value);
+    formatRegionalMoney(value, { currency: reporteData.currency });
+  const formatMoneyForCurrency = (value: number, currency: SupportedCurrency) =>
+    formatRegionalMoney(value, { currency, includeCurrencyCode: currency === "ARS" });
   const formatNumber = (value: number) =>
-    new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+    formatRegionalNumber(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const formatPercent = (value: number) =>
-    new Intl.NumberFormat("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);
+    formatRegionalNumber(value, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
   const normalizeEstado = (value: string) => {
     const normalized = value.toLowerCase();
@@ -234,7 +248,7 @@ export const exportarPDF = async (
   const title = "Costly3D – Reporte mensual de producción y rentabilidad";
   const businessName = branding?.name || "Costly3D";
   const periodo = reporteData.periodoLabel;
-  const generatedDate = new Date().toLocaleDateString("es-AR");
+  const generatedDate = formatRegionalDate(new Date());
   const getImageFormat = (dataUrl: string) => {
     if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";
     if (dataUrl.startsWith("data:image/jpg")) return "JPG";
@@ -253,6 +267,8 @@ export const exportarPDF = async (
   pdf.text(`Período: ${periodo}`, margin, cursorY);
   cursorY += 16;
   pdf.text(`Fecha de generación: ${generatedDate}`, margin, cursorY);
+  cursorY += 16;
+  pdf.text(`Moneda de totales: ${reporteData.currency} (históricos ARS excluidos)`, margin, cursorY);
 
   if (branding?.logoDataUrl) {
     try {
@@ -266,7 +282,7 @@ export const exportarPDF = async (
         logoWidth,
         logoHeight,
       );
-    } catch (error) {
+    } catch {
       // Ignore logo errors to avoid breaking the export.
     }
   }
@@ -291,18 +307,18 @@ export const exportarPDF = async (
     margin + colWidth + colGap,
     summaryRowY,
   );
-  drawKeyValue("Ingresos totales", formatMoney(reporteData.ingresos.total), margin + (colWidth + colGap) * 2, summaryRowY);
+  drawKeyValue("Ingresos estimados", formatMoney(reporteData.ingresos.total), margin + (colWidth + colGap) * 2, summaryRowY);
 
   const secondRowY = summaryRowY + 40;
   drawKeyValue("Costos totales", formatMoney(costosTotales), margin, secondRowY);
   drawKeyValue(
-    "Ganancia neta",
+    "Utilidad estimada",
     formatMoney(reporteData.rentabilidadNeta.neto),
     margin + colWidth + colGap,
     secondRowY,
   );
   drawKeyValue(
-    "Margen promedio",
+    "Margen estimado",
     `${formatPercent(reporteData.rentabilidadNeta.margenPct)}%`,
     margin + (colWidth + colGap) * 2,
     secondRowY,
@@ -324,9 +340,9 @@ export const exportarPDF = async (
     { label: "Categoría", width: 80 },
     { label: "Estado", width: 50 },
     { label: "Material (g)", width: 55 },
-    { label: "Costo total", width: 60 },
-    { label: "Precio venta", width: 60 },
-    { label: "Ganancia", width: 60 },
+    { label: "Costo estimado", width: 60 },
+    { label: "Precio sugerido", width: 60 },
+    { label: "Utilidad est.", width: 60 },
   ];
   const tableX = margin;
   const headerHeight = 18;
@@ -357,9 +373,9 @@ export const exportarPDF = async (
       row.categoria || "General",
       estado,
       formatNumber(material),
-      formatMoney(row.costoTotal || 0),
-      formatMoney(row.precioVenta || 0),
-      formatMoney(row.ganancia || 0),
+      formatMoneyForCurrency(row.costoTotal || 0, row.currency),
+      formatMoneyForCurrency(row.precioVenta || 0, row.currency),
+      formatMoneyForCurrency(row.ganancia || 0, row.currency),
     ];
 
     const productLines = pdf.splitTextToSize(cells[0], tableColumns[0].width - 8) as string[];

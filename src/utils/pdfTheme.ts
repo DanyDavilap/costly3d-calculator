@@ -1,4 +1,9 @@
 import type { jsPDF } from "jspdf";
+import {
+  formatDate as formatRegionalDate,
+  formatMoney as formatRegionalMoney,
+  type SupportedCurrency,
+} from "../config/regional";
 
 export type BrandSettings = {
   name: string;
@@ -57,15 +62,10 @@ export const createPdfTheme = (brand: BrandSettings): PdfTheme => {
   };
 };
 
-export const formatMoney = (value: number, currency: string = "ARS") =>
-  new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 0,
-  }).format(value);
+export const formatMoney = (value: number, currency: SupportedCurrency = "COP") =>
+  formatRegionalMoney(value, { currency });
 
-export const formatDate = (date: Date) =>
-  new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+export const formatDate = (date: Date) => formatRegionalDate(date);
 
 const getImageFormat = (dataUrl: string) => {
   if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";

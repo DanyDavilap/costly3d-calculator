@@ -48,12 +48,10 @@ import {
   type ImpresionConsumoInput,
 } from "../../utils/consumoImpresiones";
 import { exportarExcel, exportarPDF, type ReporteExportData } from "../../utils/reporteExports";
-import { BRANDING_ACTIVO, activarBranding } from "../../utils/brandingActivation";
+import { activarBranding } from "../../utils/brandingActivation";
 import ColorPicker, { type ColorOption } from "../../components/ui/ColorPicker";
 import {
   createPdfTheme,
-  formatDate,
-  formatMoney,
   renderFooter,
   renderHeader,
   DEFAULT_BRAND,
@@ -85,6 +83,61 @@ import {
 import WikiLayout from "../../wiki/components/WikiLayout";
 import { CAFECITO_URL } from "../../config/links";
 import MakerAssistant from "../../components/MakerAssistant";
+import QuickQuoteIntro from "../../components/quotes/QuickQuoteIntro";
+import QuickFinishEditor, { type QuickFinishType } from "../../components/quotes/QuickFinishEditor";
+import {
+  COLOMBIA_REGIONAL_CONFIG,
+  LEGACY_ARGENTINA_REGIONAL_CONFIG,
+  formatDate as formatRegionalDate,
+  formatMoney as formatRegionalMoney,
+  type SupportedCurrency,
+} from "../../config/regional";
+import {
+  FinancialValidationError,
+  type AdditionalLineItemInput,
+  type CostEngineV2Result,
+  type LaborTaskInput,
+} from "../../core/financialEngineV2";
+import { calculateLotTotals, type QuoteLotTotals } from "../../core/quoteCalculatorV2";
+import { registerSale } from "../../core/sales";
+import type { Sale } from "../../domain/sales";
+import {
+  calculateBusinessSetupStatus,
+  deriveMaterialUnitCosts,
+  isConfiguredRate,
+  type BusinessEconomicSettings,
+  type Machine,
+  type QuoteReliability,
+} from "../../domain/businessSetup";
+import {
+  COSTLY_STANDARD_PROFILE,
+  DEFAULT_PROFILE_MATERIAL_ID,
+  findProfileMaterial,
+  findProfileMaterialByType,
+  getManualLaborRate,
+} from "../../domain/costProfile";
+import {
+  createLegacyFinancialMetadata,
+  createV2FinancialMetadata,
+  isLegacyFinancialRecord,
+  withFinancialVersionForRead,
+  type VersionedFinancialRecord,
+} from "../../persistence/financialVersioning";
+import { downloadFinancialBackup } from "../../persistence/financialBackup";
+import {
+  loadEconomicSettings,
+  loadMachines,
+  saveEconomicSettings,
+  saveMachines,
+} from "../../persistence/businessSetupPersistence";
+import { loadSales, saveSales } from "../../persistence/salesPersistence";
+import {
+  calculateDashboardPricingV2,
+  type DashboardPricingParamsV2,
+} from "../../utils/v2PricingAdapter";
+
+type ActivePricingParams = PricingParams & DashboardPricingParamsV2;
+type StoredPricingParams = PricingParams & Partial<DashboardPricingParamsV2>;
 
 type KnownPrintStatus =
   | "draft"
@@ -109,7 +162,7 @@ interface FailureDetails {
   note?: string;
 }
 
-interface HistoryRecord {
+interface HistoryRecord extends VersionedFinancialRecord {
   id: string;
   date: string;
   createdAt?: string | null;
@@ -118,7 +171,7 @@ interface HistoryRecord {
   productName: string;
   category: string;
   inputs: PricingInputs;
-  params: PricingParams;
+  params: StoredPricingParams;
   breakdown: PricingBreakdown;
   total: number;
   selectedMaterialId?: string;
@@ -134,6 +187,10 @@ interface HistoryRecord {
   reprintOfId?: string | null;
   failure?: FailureDetails | null;
   stockChanges: StockChange[];
+  reliabilitySnapshot?: QuoteReliability;
+  machineSnapshot?: CostEngineV2Result["machine"];
+  sourceQuoteId?: string | null;
+  productionOrderId?: string | null;
 }
 
 interface StockChange {
@@ -184,11 +241,35 @@ interface MaterialSpool {
   materialType: string;
   color: ColorOption | null;
   gramsAvailable: number;
+  initialQuantity?: number;
+  unit: "g" | "kg" | "ml" | "l";
+  technology: "FDM" | "SLA" | "SLS" | "other";
+  purchasePrice?: number;
+  purchaseDate?: string;
   costPerKg?: number;
+  currency: SupportedCurrency;
+  costContextDate?: string;
+  schemaVersion: 1 | 2;
+  enabled: boolean;
   isDemo?: boolean;
 }
 
-const PARAMS_STORAGE_KEY = "calculatorBaseParams";
+type LaborTaskDraft = {
+  id: string;
+  type: LaborTaskInput["type"];
+  name: string;
+  minutes: string;
+  hourlyRate: string;
+};
+
+type AdditionalItemDraft = {
+  id: string;
+  name: string;
+  quantity: string;
+  unitCost: string;
+};
+
+const PARAMS_STORAGE_KEY = "calculatorBaseParamsV2";
 const HISTORY_STORAGE_KEY = "toyRecords";
 const STOCK_STORAGE_KEY = "stockByProduct";
 const CATEGORY_STORAGE_KEY = "calculatorCategory";
@@ -213,6 +294,16 @@ const MONTH_NAMES = [
   "diciembre",
 ];
 const MATERIAL_OPTIONS = ["PLA", "PETG", "ABS", "TPU", "Resin", "Otro..."];
+const LABOR_TASK_OPTIONS: Array<{ value: LaborTaskInput["type"]; label: string }> = [
+  { value: "support_removal", label: "Retiro de soportes" },
+  { value: "sanding", label: "Lijado" },
+  { value: "gluing", label: "Pegado" },
+  { value: "assembly", label: "Ensamblaje" },
+  { value: "painting", label: "Pintura" },
+  { value: "finishing", label: "Acabado" },
+  { value: "packing", label: "Empaque" },
+  { value: "other", label: "Otro" },
+];
 const BRAND_OPTIONS = [
   "Bambu Lab",
   "Elegoo",
@@ -255,7 +346,7 @@ const COLOR_OPTIONS: ColorOption[] = [
   { name: "Transparente", hex: "#E2E8F0" },
 ];
 
-const DEFAULT_PARAMS: PricingParams = {
+const LEGACY_DEFAULT_PARAMS: PricingParams = {
   filamentCostPerKg: 30000,
   powerWatts: 80,
   energyCostPerKwh: 100,
@@ -263,6 +354,21 @@ const DEFAULT_PARAMS: PricingParams = {
   wearPercent: 5,
   operationalPercent: 5,
   profitPercent: 40,
+};
+
+const DEFAULT_PARAMS: ActivePricingParams = {
+  filamentCostPerKg: COSTLY_STANDARD_PROFILE.materials[0].costPerKg,
+  powerWatts: COSTLY_STANDARD_PROFILE.electricity.powerWatts,
+  energyCostPerKwh: COSTLY_STANDARD_PROFILE.electricity.costPerKwh,
+  laborPerHour: COSTLY_STANDARD_PROFILE.labor.printingHourlyRate,
+  wearPercent: COSTLY_STANDARD_PROFILE.machine.wearPercent,
+  operationalPercent: 0,
+  profitPercent: COSTLY_STANDARD_PROFILE.pricing.percentage,
+  machineCostPerHour: 0,
+  wastePercent: 0,
+  pricingMode: COSTLY_STANDARD_PROFILE.pricing.mode,
+  pricingPercent: COSTLY_STANDARD_PROFILE.pricing.percentage,
+  roundingStrategy: COSTLY_STANDARD_PROFILE.pricing.roundingStrategy,
 };
 
 const DEFAULT_MARKETING_PROFILE: MarketingProfile = {
@@ -322,7 +428,7 @@ const isKnownHistoryStatus = (status: unknown) =>
   isFinalizedOkStatus(status) ||
   isFinalizedFailedStatus(status);
 
-const loadStoredParams = (): PricingParams => {
+const loadStoredParams = (): ActivePricingParams => {
   if (typeof window === "undefined") return DEFAULT_PARAMS;
   const saved = localStorage.getItem(PARAMS_STORAGE_KEY);
   if (!saved) return DEFAULT_PARAMS;
@@ -340,6 +446,10 @@ interface PricingResult {
   timeMinutes: number;
   materialGrams: number;
   breakdown: PricingBreakdown;
+  financialSnapshot?: CostEngineV2Result;
+  quantity: number;
+  lotTotals: QuoteLotTotals;
+  reliability: QuoteReliability;
 }
 
 const toFixedString = (value: number) => (Number.isFinite(value) ? value.toFixed(0) : "0");
@@ -377,6 +487,7 @@ const normalizeHistoryRecord = (
   fallbackParams: PricingParams
 ): HistoryRecord | null => {
   if (!raw) return null;
+  const versioned = withFinancialVersionForRead(raw as unknown as Record<string, unknown>);
   const inputs = raw.inputs ?? {
     timeMinutes: (raw as unknown as { time?: number }).time ?? 0,
     materialGrams: (raw as unknown as { material?: number }).material ?? 0,
@@ -466,7 +577,9 @@ const normalizeHistoryRecord = (
 
   return {
     id: raw.id ?? Date.now().toString(),
-    date: raw.date ?? new Date().toLocaleDateString("es-AR"),
+    date:
+      raw.date ??
+      formatRegionalDate(new Date(), {}, LEGACY_ARGENTINA_REGIONAL_CONFIG),
     createdAt:
       (raw as HistoryRecord).createdAt ??
       (raw as HistoryRecord).startedAt ??
@@ -493,6 +606,17 @@ const normalizeHistoryRecord = (
     reprintOfId: (raw as HistoryRecord).reprintOfId ?? null,
     failure,
     stockChanges,
+    schemaVersion: versioned.schemaVersion,
+    calculationModelVersion: versioned.calculationModelVersion,
+    currency: versioned.currency,
+    locale: versioned.locale,
+    country: versioned.country,
+    regionalTag: versioned.regionalTag,
+    financialSnapshot: versioned.financialSnapshot,
+    reliabilitySnapshot: (raw as HistoryRecord).reliabilitySnapshot,
+    machineSnapshot: (raw as HistoryRecord).machineSnapshot,
+    sourceQuoteId: (raw as HistoryRecord).sourceQuoteId ?? null,
+    productionOrderId: (raw as HistoryRecord).productionOrderId ?? null,
   };
 };
 
@@ -529,15 +653,31 @@ const loadMaterialStock = (): MaterialSpool[] => {
   try {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
-    const raw = parsed
-      .map((spool) => ({
+    const raw: MaterialSpool[] = parsed
+      .map((spool): MaterialSpool => ({
         id: String(spool.id ?? Date.now().toString()),
         displayName: String(spool.displayName ?? spool.name ?? ""),
         brand: String(spool.brand ?? ""),
         materialType: String(spool.materialType ?? ""),
         color: resolveColorOption(spool.color),
         gramsAvailable: Number.isFinite(spool.gramsAvailable) ? Number(spool.gramsAvailable) : 0,
+        initialQuantity: Number.isFinite(spool.initialQuantity)
+          ? Number(spool.initialQuantity)
+          : Number.isFinite(spool.gramsAvailable)
+            ? Number(spool.gramsAvailable)
+            : undefined,
+        unit: ["g", "kg", "ml", "l"].includes(spool.unit) ? spool.unit : "g",
+        technology: ["FDM", "SLA", "SLS", "other"].includes(spool.technology)
+          ? spool.technology
+          : "FDM",
+        purchasePrice: Number.isFinite(spool.purchasePrice) ? Number(spool.purchasePrice) : undefined,
+        purchaseDate: typeof spool.purchaseDate === "string" ? spool.purchaseDate : undefined,
         costPerKg: Number.isFinite(spool.costPerKg) ? Number(spool.costPerKg) : undefined,
+        currency: spool.currency === "COP" && spool.schemaVersion === 2 ? "COP" : "ARS",
+        costContextDate:
+          typeof spool.costContextDate === "string" ? spool.costContextDate : undefined,
+        schemaVersion: spool.currency === "COP" && spool.schemaVersion === 2 ? 2 : 1,
+        enabled: spool.enabled !== false,
         isDemo: Boolean(spool.isDemo),
       }))
       .filter((spool) => Boolean(spool.displayName));
@@ -658,8 +798,10 @@ const isValidInputs = (inputs: PricingInputs) =>
   isFiniteNumber(inputs.assemblyMinutes) &&
   inputs.assemblyMinutes >= 0;
 
-const isValidParams = (params: PricingParams) =>
-  Object.values(params).every((value) => isFiniteNumber(value) && value >= 0);
+const isValidParams = (params: StoredPricingParams) =>
+  Object.values(params).every(
+    (value) => typeof value === "string" || (isFiniteNumber(value) && value >= 0),
+  );
 
 const isValidBreakdown = (breakdown: PricingBreakdown) =>
   Object.values(breakdown).every((value) => isFiniteNumber(value));
@@ -701,7 +843,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const betaQuotesRemaining = Math.max(0, betaQuoteLimit - betaQuoteCount);
   const betaProductionsRemaining = Math.max(0, betaProductionLimit - betaProductionCount);
   const [activeSection, setActiveSection] = useState<DashboardSection>("calculator");
-  const [records, setRecords] = useState<HistoryRecord[]>(() => loadStoredRecords(loadStoredParams()));
+  const [records, setRecords] = useState<HistoryRecord[]>(() =>
+    loadStoredRecords(LEGACY_DEFAULT_PARAMS),
+  );
 
   const [toyName, setToyName] = useState("");
   const [category, setCategory] = useState(() => {
@@ -714,7 +858,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const [assemblyHours, setAssemblyHours] = useState("");
   const [assemblyMinutes, setAssemblyMinutes] = useState("");
   const [materialWeight, setMaterialWeight] = useState("");
-  const [selectedMaterialId, setSelectedMaterialId] = useState("");
+  const [quoteQuantity, setQuoteQuantity] = useState("1");
+  const [selectedMaterialId, setSelectedMaterialId] = useState(DEFAULT_PROFILE_MATERIAL_ID);
+  const [selectedMachineId, setSelectedMachineId] = useState("");
   const [stockError, setStockError] = useState("");
   const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
   const [projects, setProjects] = useState<Project[]>(() => loadStoredProjects());
@@ -725,7 +871,36 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     description: "",
   });
   const [marketingProfile, setMarketingProfile] = useState<MarketingProfile>(() => loadMarketingProfile());
-  const [params, setParams] = useState<PricingParams>(loadStoredParams);
+  const [params, setParams] = useState<ActivePricingParams>(loadStoredParams);
+  const [machines, setMachines] = useState<Machine[]>(() =>
+    typeof window === "undefined" ? [] : loadMachines(window.localStorage),
+  );
+  const [economicSettings, setEconomicSettings] = useState<BusinessEconomicSettings>(() =>
+    typeof window === "undefined"
+      ? {
+          schemaVersion: 1,
+          currency: "COP",
+          electricity: { currency: "COP" },
+          labor: { currency: "COP" },
+          pricing: { roundingStrategy: "exact" },
+          updatedAt: new Date().toISOString(),
+        }
+      : loadEconomicSettings(window.localStorage),
+  );
+  const [laborTasks, setLaborTasks] = useState<LaborTaskDraft[]>([]);
+  const [additionalItems, setAdditionalItems] = useState<AdditionalItemDraft[]>([]);
+  const [sales, setSales] = useState<Sale[]>(() =>
+    typeof window === "undefined" ? [] : loadSales(window.localStorage),
+  );
+  const [saleTarget, setSaleTarget] = useState<HistoryRecord | null>(null);
+  const [saleForm, setSaleForm] = useState({
+    quantity: "1",
+    unitPrice: "",
+    date: new Date().toISOString().slice(0, 10),
+    discount: "",
+    fees: "",
+    shippingCost: "",
+  });
 
   const [result, setResult] = useState<PricingResult | null>(null);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
@@ -765,7 +940,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     materialOther: "",
     color: null as ColorOption | null,
     gramsAvailable: "",
+    initialQuantity: "",
+    unit: "g" as MaterialSpool["unit"],
+    technology: "FDM" as MaterialSpool["technology"],
+    purchasePrice: "",
+    purchaseDate: "",
     costPerKg: "",
+    enabled: true,
   });
   const [adjustTargetId, setAdjustTargetId] = useState("");
   const [adjustGrams, setAdjustGrams] = useState("");
@@ -808,6 +989,18 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   useEffect(() => {
     localStorage.setItem(PARAMS_STORAGE_KEY, JSON.stringify(params));
   }, [params]);
+
+  useEffect(() => {
+    saveMachines(localStorage, machines);
+  }, [machines]);
+
+  useEffect(() => {
+    saveEconomicSettings(localStorage, economicSettings);
+  }, [economicSettings]);
+
+  useEffect(() => {
+    saveSales(localStorage, sales);
+  }, [sales]);
 
   useEffect(() => {
     localStorage.setItem(CATEGORY_STORAGE_KEY, category.trim() || "General");
@@ -877,6 +1070,197 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const handleToggleDarkMode = () => {
     const next = toggleDarkMode();
     setIsDarkMode(next === "dark");
+  };
+
+  const updateMachine = (id: string, updates: Partial<Machine>) => {
+    setMachines((current) =>
+      current.map((machine) =>
+        machine.id === id ? { ...machine, ...updates, updatedAt: new Date().toISOString() } : machine,
+      ),
+    );
+  };
+
+  const addMachine = () => {
+    const now = new Date().toISOString();
+    const machine: Machine = {
+      id: `machine-${Date.now()}`,
+      name: "Nueva máquina",
+      brand: "",
+      model: "",
+      currency: "COP",
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setMachines((current) => [...current, machine]);
+    setSelectedMachineId(machine.id);
+  };
+
+  const updateEconomicSettings = (updates: Partial<BusinessEconomicSettings>) => {
+    setEconomicSettings((current) => ({
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
+  const addLaborTask = () => {
+    setLaborTasks((current) => [
+      ...current,
+      {
+        id: `labor-${Date.now()}`,
+        type: "support_removal",
+        name: "Retiro de soportes",
+        minutes: "",
+        hourlyRate: "",
+      },
+    ]);
+  };
+
+  const addQuickFinish = (type: QuickFinishType) => {
+    const label = type === "sanding" ? "Lijado" : type === "painting" ? "Pintado a mano" : "Acabado personalizado";
+    setLaborTasks((current) => [
+      ...current,
+      {
+        id: `finish-${type}-${Date.now()}`,
+        type,
+        name: label,
+        minutes: "",
+        hourlyRate: "",
+      },
+    ]);
+  };
+
+  const addAdditionalItem = () => {
+    setAdditionalItems((current) => [
+      ...current,
+      { id: `additional-${Date.now()}`, name: "", quantity: "1", unitCost: "" },
+    ]);
+  };
+
+  const selectedMachine = machines.find((machine) => machine.id === selectedMachineId && machine.enabled);
+  const selectedMaterial = materialStock.find((material) => material.id === selectedMaterialId && material.enabled);
+  const selectedProfileMaterial = findProfileMaterial(selectedMaterialId);
+  const businessSetupStatus = calculateBusinessSetupStatus({
+    machines,
+    materials: materialStock,
+    settings: economicSettings,
+  });
+  const currentQuoteReliability: QuoteReliability = {
+    level: "complete",
+    capturedAt: new Date().toISOString(),
+    missing: [],
+    messages: [],
+  };
+
+  const buildLaborTaskInputs = (inputs: PricingInputs) => {
+    const tasks: Array<Omit<LaborTaskInput, "hourlyRate"> & { hourlyRate?: number }> = [];
+    if (inputs.assemblyMinutes > 0) {
+      tasks.push({
+        id: "assembly-ui",
+        type: "assembly",
+        name: "Ensamblaje",
+        minutes: inputs.assemblyMinutes,
+      });
+    }
+    laborTasks.forEach((task) => {
+      const minutes = Number(task.minutes);
+      const profileRate = getManualLaborRate(task.type);
+      const savedRate = economicSettings.labor.value;
+      const specificRate = task.hourlyRate.trim() === "" ? savedRate ?? profileRate : Number(task.hourlyRate);
+      tasks.push({
+        id: task.id,
+        type: task.type,
+        name: task.name.trim() || "Trabajo manual",
+        minutes: Number.isFinite(minutes) ? minutes : 0,
+        hourlyRate: specificRate !== undefined && Number.isFinite(specificRate) ? specificRate : undefined,
+      });
+    });
+    return tasks;
+  };
+
+  const buildAdditionalItemInputs = (): AdditionalLineItemInput[] =>
+    additionalItems.map((item) => ({
+      id: item.id,
+      name: item.name.trim() || "Adicional",
+      quantity: Number(item.quantity),
+      unitCost: Number(item.unitCost),
+      category: "other",
+    }));
+
+  const calculateCurrentPricing = (
+    inputs: PricingInputs,
+    paramsSnapshot: ActivePricingParams = params,
+    materialId: string = selectedMaterialId,
+    quantityOverride?: number,
+  ) => {
+    const spool = materialId
+      ? materialStock.find((item) => item.id === materialId)
+      : undefined;
+    const profileMaterial = findProfileMaterial(materialId) ?? findProfileMaterialByType(spool?.materialType)
+      ?? COSTLY_STANDARD_PROFILE.materials[0];
+    const machine = machines.find((item) => item.id === selectedMachineId && item.enabled);
+    const quantity = quantityOverride ?? Number.parseInt(quoteQuantity, 10);
+    const effectiveParams: ActivePricingParams = {
+      ...paramsSnapshot,
+      filamentCostPerKg: profileMaterial.costPerKg,
+      powerWatts: machine?.powerWatts ?? (paramsSnapshot.powerWatts > 0 ? paramsSnapshot.powerWatts : COSTLY_STANDARD_PROFILE.electricity.powerWatts),
+      machineCostPerHour: machine?.machineCostPerHour ?? 0,
+      printingLaborCostPerHour: economicSettings.labor.value ?? (paramsSnapshot.laborPerHour > 0 ? paramsSnapshot.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
+      wearPercent: isConfiguredRate(machine?.machineCostPerHour)
+        ? 0
+        : paramsSnapshot.wearPercent > 0
+          ? paramsSnapshot.wearPercent
+          : COSTLY_STANDARD_PROFILE.machine.wearPercent,
+      failureReservePercent: paramsSnapshot.operationalPercent > 0
+        ? paramsSnapshot.operationalPercent
+        : COSTLY_STANDARD_PROFILE.failureReservePercent,
+      energyCostPerKwh: economicSettings.electricity.value ?? (paramsSnapshot.energyCostPerKwh > 0 ? paramsSnapshot.energyCostPerKwh : COSTLY_STANDARD_PROFILE.electricity.costPerKwh),
+      laborPerHour: economicSettings.labor.value ?? (paramsSnapshot.laborPerHour > 0 ? paramsSnapshot.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
+      wastePercent: 0,
+      pricingMode: economicSettings.pricing.mode ?? paramsSnapshot.pricingMode,
+      pricingPercent: economicSettings.pricing.percentage ?? (paramsSnapshot.pricingPercent > 0 ? paramsSnapshot.pricingPercent : COSTLY_STANDARD_PROFILE.pricing.percentage),
+      roundingStrategy: economicSettings.pricing.roundingStrategy ?? COSTLY_STANDARD_PROFILE.pricing.roundingStrategy,
+    };
+    const calculated = calculateDashboardPricingV2({
+      inputs,
+      params: effectiveParams,
+      material: {
+        materialId: spool?.id,
+        spoolId: spool?.id,
+        materialName: spool?.displayName || profileMaterial.label,
+        // Un costo legacy ARS nunca se reutiliza como COP.
+        costPerKg:
+          spool?.currency === "COP" && isConfiguredRate(spool.costPerKg)
+            ? spool.costPerKg
+            : profileMaterial.costPerKg,
+        costContextDate:
+          spool?.currency === "COP" ? spool.costContextDate : undefined,
+        brand: spool?.brand,
+        materialType: spool?.materialType ?? profileMaterial.materialType,
+        color: spool?.color?.name,
+        technology: spool?.technology,
+        purchasePrice: spool?.purchasePrice,
+        purchaseDate: spool?.purchaseDate,
+        purchaseQuantity: spool?.initialQuantity,
+        purchaseUnit: spool?.unit,
+      },
+      machine: {
+        machineId: machine?.id,
+        name: machine?.name,
+        brand: machine?.brand,
+        model: machine?.model,
+      },
+      laborTasks: buildLaborTaskInputs(inputs),
+      additionalItems: buildAdditionalItemInputs(),
+    });
+    return {
+      ...calculated,
+      quantity,
+      lotTotals: calculateLotTotals(calculated.snapshot, quantity),
+      reliability: currentQuoteReliability,
+      effectiveParams,
+    };
   };
 
   const calculateProjectTotals = (project: Project) => {
@@ -1007,18 +1391,27 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       materialGrams: totals.grams,
       assemblyMinutes: 0,
     };
-    const breakdown = pricingCalculator({ inputs, params });
+    const { breakdown, snapshot, reliability, effectiveParams } = calculateCurrentPricing(
+      inputs,
+      params,
+      "",
+      1,
+    );
     const newRecord: HistoryRecord = {
+      ...createV2FinancialMetadata(),
       id: Date.now().toString(),
-      date: new Date().toLocaleDateString("es-AR"),
+      date: formatRegionalDate(new Date()),
       createdAt: new Date().toISOString(),
       duplicatedFrom: null,
       name: project.name,
       productName: project.name,
       category: project.category || "General",
       inputs,
-      params,
+      params: effectiveParams,
       breakdown,
+      financialSnapshot: snapshot,
+      reliabilitySnapshot: reliability,
+      machineSnapshot: snapshot.machine,
       total: breakdown.finalPrice,
       selectedMaterialId: "",
       materialGramsUsed: 0,
@@ -1113,6 +1506,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         materialType: "PLA",
         color: { name: "Negro", hex: "#111827" },
         gramsAvailable: 4000,
+        unit: "g",
+        technology: "FDM",
+        enabled: true,
+        currency: "ARS",
+        schemaVersion: 1,
       },
       {
         id: "demo-pla-blanco",
@@ -1121,6 +1519,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         materialType: "PLA",
         color: { name: "Blanco", hex: "#F8FAFC" },
         gramsAvailable: 2000,
+        unit: "g",
+        technology: "FDM",
+        enabled: true,
+        currency: "ARS",
+        schemaVersion: 1,
       },
       {
         id: "demo-petg-gris",
@@ -1129,6 +1532,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         materialType: "PETG",
         color: { name: "Gris", hex: "#9CA3AF" },
         gramsAvailable: 1500,
+        unit: "g",
+        technology: "FDM",
+        enabled: true,
+        currency: "ARS",
+        schemaVersion: 1,
       },
       {
         id: "demo-pla-rojo",
@@ -1137,6 +1545,11 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         materialType: "PLA",
         color: { name: "Rojo", hex: "#EF4444" },
         gramsAvailable: 1000,
+        unit: "g",
+        technology: "FDM",
+        enabled: true,
+        currency: "ARS",
+        schemaVersion: 1,
       },
     ];
 
@@ -1196,6 +1609,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       : null;
 
       return {
+        ...createLegacyFinancialMetadata(),
         id: `demo-${name.replace(/\s+/g, "-").toLowerCase()}-${dateLabel.replace(/\//g, "")}`,
         date: dateLabel,
         createdAt: new Date().toISOString(),
@@ -1354,7 +1768,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const showStockOnboarding = materialStock.length === 0;
   const showStockBanner =
     showStockOnboarding &&
-    (activeSection === "calculator" || activeSection === "quotations" || activeSection === "production");
+    (activeSection === "quotations" || activeSection === "production");
 
   const ensureBetaQuota = (type: "quotes" | "production") => {
     if (!isBetaApp) return true;
@@ -1391,7 +1805,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }
   };
 
-  const globalMetrics = useMemo(() => calculateMonthlyMetrics(records), [records]);
+  const globalMetrics = useMemo(
+    () => calculateMonthlyMetrics(records.filter((record) => record.currency === "COP")),
+    [records],
+  );
 
   const rentabilidadData = useMemo(() => {
     const productMap = new Map<
@@ -1891,7 +2308,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       materialOther: "",
       color: null,
       gramsAvailable: "",
+      initialQuantity: "",
+      unit: "g",
+      technology: "FDM",
+      purchasePrice: "",
+      purchaseDate: "",
       costPerKg: "",
+      enabled: true,
     });
   };
 
@@ -1948,8 +2371,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       return { materialType: null, materialColorName: null, materialBrand: null };
     }
     const spool = materialStock.find((item) => item.id === selectedMaterialId);
+    const profileMaterial = findProfileMaterial(selectedMaterialId);
     return {
-      materialType: spool?.materialType ?? null,
+      materialType: spool?.materialType ?? profileMaterial?.materialType ?? null,
       materialColorName: spool?.color?.name ?? null,
       materialBrand: spool?.brand ?? null,
     };
@@ -1996,18 +2420,27 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const handleSaveSpool = () => {
-    const grams = Number.parseFloat(stockForm.gramsAvailable);
+    const remainingInput = Number.parseFloat(stockForm.gramsAvailable);
+    const initialInput = Number.parseFloat(stockForm.initialQuantity || stockForm.gramsAvailable);
     const resolvedBrand = resolveCustomOption(stockForm.brandOption, stockForm.brandOther);
     const resolvedMaterial = resolveCustomOption(stockForm.materialOption, stockForm.materialOther);
     if (!resolvedBrand || !resolvedMaterial || !stockForm.color) {
-      setStockNotice("Completá marca, material y color.");
+      setStockNotice("Completa marca, material y color.");
       return;
     }
-    if (!Number.isFinite(grams) || grams < 0) {
-      setStockNotice("Ingresá gramos disponibles válidos.");
+    if (!Number.isFinite(remainingInput) || remainingInput < 0 || !Number.isFinite(initialInput) || initialInput <= 0) {
+      setStockNotice("Ingresa cantidades inicial y restante válidas.");
       return;
     }
-    const costPerKg = Number.parseFloat(stockForm.costPerKg);
+    const purchasePrice = Number.parseFloat(stockForm.purchasePrice);
+    const derivedCosts = deriveMaterialUnitCosts({
+      purchasePrice: Number.isFinite(purchasePrice) ? purchasePrice : undefined,
+      initialQuantity: initialInput,
+      unit: stockForm.unit,
+    });
+    const manualCostPerKg = Number.parseFloat(stockForm.costPerKg);
+    const costPerKg = derivedCosts.costPerKg ?? (Number.isFinite(manualCostPerKg) ? manualCostPerKg : undefined);
+    const baseMultiplier = stockForm.unit === "kg" || stockForm.unit === "l" ? 1000 : 1;
     const baseName = buildDisplayNameBase(resolvedMaterial, stockForm.color.name, resolvedBrand);
     const displayName = getUniqueDisplayName(baseName, stockForm.id);
     const existing = stockForm.id ? materialStock.find((spool) => spool.id === stockForm.id) : undefined;
@@ -2017,8 +2450,17 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       brand: resolvedBrand,
       materialType: resolvedMaterial,
       color: stockForm.color,
-      gramsAvailable: grams,
-      costPerKg: Number.isFinite(costPerKg) ? costPerKg : undefined,
+      gramsAvailable: remainingInput * baseMultiplier,
+      initialQuantity: initialInput,
+      unit: stockForm.unit,
+      technology: stockForm.technology,
+      purchasePrice: Number.isFinite(purchasePrice) ? purchasePrice : undefined,
+      purchaseDate: stockForm.purchaseDate || undefined,
+      costPerKg,
+      currency: "COP",
+      costContextDate: new Date().toISOString(),
+      schemaVersion: 2,
+      enabled: stockForm.enabled,
       isDemo: existing?.isDemo ?? false,
     };
     const nextStock = stockForm.id
@@ -2039,9 +2481,21 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       materialOption,
       materialOther: materialOption === "Otro..." ? spool.materialType : "",
       color: spool.color,
-      gramsAvailable: spool.gramsAvailable.toString(),
-      costPerKg: spool.costPerKg?.toString() ?? "",
+      gramsAvailable: String(
+        spool.unit === "kg" || spool.unit === "l" ? spool.gramsAvailable / 1000 : spool.gramsAvailable,
+      ),
+      initialQuantity: spool.initialQuantity?.toString() ?? "",
+      unit: spool.unit,
+      technology: spool.technology,
+      purchasePrice: spool.currency === "COP" ? spool.purchasePrice?.toString() ?? "" : "",
+      purchaseDate: spool.purchaseDate ?? "",
+      // Un costo ARS existente no se precarga en un campo que ahora representa COP.
+      costPerKg: spool.currency === "COP" ? spool.costPerKg?.toString() ?? "" : "",
+      enabled: spool.enabled,
     });
+    if (spool.currency === "ARS") {
+      setStockNotice("Este spool conserva un costo legacy ARS. Ingresa un costo COP nuevo solo si deseas actualizarlo.");
+    }
   };
 
   const handleAdjustStock = (direction: "add" | "subtract") => {
@@ -2076,7 +2530,14 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       materialType: "PLA",
       color: COLOR_OPTIONS.find((option) => option.name === "Gris") ?? { name: "Gris", hex: "#9CA3AF" },
       gramsAvailable: 1000,
+      initialQuantity: 1000,
+      unit: "g",
+      technology: "FDM",
       costPerKg: undefined,
+      currency: "COP",
+      costContextDate: new Date().toISOString(),
+      schemaVersion: 2,
+      enabled: true,
       isDemo: true,
     };
     persistMaterialStock(ensureUniqueDisplayNames([demoSpool]));
@@ -2093,11 +2554,15 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }, 2800);
   };
 
-  const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: PricingParams) =>
+  const buildRecordSignature = (inputs: PricingInputs, paramsSnapshot: StoredPricingParams) =>
     JSON.stringify({
       name: toyName.trim() || "Sin nombre",
       category: category.trim() || "General",
       materialId: selectedMaterialId || "",
+      machineId: selectedMachineId || "",
+      quantity: Number.parseInt(quoteQuantity, 10),
+      laborTasks,
+      additionalItems,
       inputs,
       params: paramsSnapshot,
     });
@@ -2151,14 +2616,18 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     return {
       productName,
       categoryName,
-      dateLabel: formatDate(new Date()),
-      marginPercent: params.profitPercent,
+      dateLabel: formatRegionalDate(new Date()),
+      currency: "COP" as const,
+      pricingMode: params.pricingMode,
+      pricingPercent: params.pricingPercent,
+      resultingMarginPercent: result.breakdown.resultingMarginPercent ?? 0,
       profit: result.breakdown.profit,
       breakdown: {
         materiales: result.breakdown.materialCost,
         energia: result.breakdown.energyCost,
         manoDeObra: result.breakdown.laborCost,
-        usoYMantenimiento: result.breakdown.wearCost + result.breakdown.operatingCost,
+        usoYMantenimiento:
+          (result.breakdown.machineCost ?? 0) + (result.breakdown.additionalCost ?? 0),
         finalPrice: result.breakdown.finalPrice,
       },
     };
@@ -2168,7 +2637,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     productName: string;
     categoryName: string;
     dateLabel: string;
-    marginPercent: number;
+    currency: SupportedCurrency;
+    pricingMode: "markup" | "target_margin";
+    pricingPercent: number;
+    resultingMarginPercent: number;
     profit: number;
     breakdown: {
       materiales: number;
@@ -2182,14 +2654,31 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const buildPdfDataFromRecord = (record: HistoryRecord): PdfData => ({
     productName: record.productName || record.name || "Producto",
     categoryName: record.category || "General",
-    dateLabel: record.date || formatDate(new Date()),
-    marginPercent: record.params.profitPercent,
+    dateLabel:
+      record.date ||
+      formatRegionalDate(
+        new Date(),
+        {},
+        record.currency === "ARS"
+          ? LEGACY_ARGENTINA_REGIONAL_CONFIG
+          : COLOMBIA_REGIONAL_CONFIG,
+      ),
+    currency: record.currency,
+    pricingMode: record.params.pricingMode ?? "markup",
+    pricingPercent: record.params.pricingPercent ?? record.params.profitPercent,
+    resultingMarginPercent:
+      record.breakdown.resultingMarginPercent ??
+      (record.breakdown.finalPrice > 0
+        ? (record.breakdown.profit / record.breakdown.finalPrice) * 100
+        : 0),
     profit: record.breakdown.profit,
     breakdown: {
       materiales: record.breakdown.materialCost,
       energia: record.breakdown.energyCost,
       manoDeObra: record.breakdown.laborCost,
-      usoYMantenimiento: record.breakdown.wearCost + record.breakdown.operatingCost,
+      usoYMantenimiento: isLegacyFinancialRecord(record)
+        ? record.breakdown.wearCost + record.breakdown.operatingCost
+        : (record.breakdown.machineCost ?? 0) + (record.breakdown.additionalCost ?? 0),
       finalPrice: record.breakdown.finalPrice,
     },
   });
@@ -2198,7 +2687,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     productName,
     categoryName,
     dateLabel,
-    marginPercent,
+    currency,
+    pricingMode,
+    pricingPercent,
+    resultingMarginPercent,
     profit,
     breakdown,
   }: PdfData) => {
@@ -2215,7 +2707,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       { label: "Materiales", value: breakdown.materiales },
       { label: "Consumo energético", value: breakdown.energia },
       { label: "Mano de obra", value: breakdown.manoDeObra },
-      { label: "Uso y mantenimiento de equipo", value: breakdown.usoYMantenimiento },
+      { label: "Uso de máquina y adicionales", value: breakdown.usoYMantenimiento },
     ];
     const costTotal = clientBreakdown.reduce((acc, item) => acc + item.value, 0);
     const cardWidth = pageWidth - theme.marginX * 2;
@@ -2225,8 +2717,22 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const labelColor = { r: 100, g: 116, b: 139 };
     const mutedColor = { r: 148, g: 163, b: 184 };
     const borderColor = { r: 226, g: 232, b: 240 };
-    const formattedMargin = Number.isFinite(marginPercent)
-      ? new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(marginPercent)
+    const regional =
+      currency === "ARS"
+        ? LEGACY_ARGENTINA_REGIONAL_CONFIG
+        : COLOMBIA_REGIONAL_CONFIG;
+    const formatPdfMoney = (value: number) =>
+      formatRegionalMoney(value, {
+        config: regional,
+        includeCurrencyCode: currency === "ARS",
+      });
+    const formattedPricingPercent = Number.isFinite(pricingPercent)
+      ? new Intl.NumberFormat(regional.locale, { maximumFractionDigits: 1 }).format(pricingPercent)
+      : "0";
+    const formattedResultingMargin = Number.isFinite(resultingMarginPercent)
+      ? new Intl.NumberFormat(regional.locale, { maximumFractionDigits: 1 }).format(
+          resultingMarginPercent,
+        )
       : "0";
 
     doc.setFont("helvetica", "normal");
@@ -2273,7 +2779,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         doc.text(item.label, theme.marginX + cardPadding, contentY);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(17, 24, 39);
-        doc.text(formatMoney(item.value), rightEdge - cardPadding, contentY, { align: "right" });
+        doc.text(formatPdfMoney(item.value), rightEdge - cardPadding, contentY, { align: "right" });
         doc.setFont("helvetica", "normal");
         doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
         contentY += lineHeight;
@@ -2288,7 +2794,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
       doc.text("Costo de producción", theme.marginX + cardPadding, contentY);
-      doc.text(formatMoney(costTotal), rightEdge - cardPadding, contentY, { align: "right" });
+      doc.text(formatPdfMoney(costTotal), rightEdge - cardPadding, contentY, { align: "right" });
       contentY += lineHeight;
 
       doc.setFont("helvetica", "normal");
@@ -2303,18 +2809,26 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(theme.textSize);
       doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
-      doc.text("Margen aplicado", theme.marginX + cardPadding, contentY);
+      doc.text(
+        pricingMode === "markup" ? "Recargo sobre costo (Markup)" : "Margen objetivo",
+        theme.marginX + cardPadding,
+        contentY,
+      );
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
-      doc.text(`${formattedMargin}%`, rightEdge - cardPadding, contentY, { align: "right" });
+      doc.text(`${formattedPricingPercent}%`, rightEdge - cardPadding, contentY, { align: "right" });
       contentY += lineHeight;
 
       doc.setFont("helvetica", "normal");
       doc.setTextColor(labelColor.r, labelColor.g, labelColor.b);
-      doc.text("Utilidad estimada", theme.marginX + cardPadding, contentY);
+      doc.text(
+        `Margen resultante: ${formattedResultingMargin}% · Utilidad estimada`,
+        theme.marginX + cardPadding,
+        contentY,
+      );
       doc.setFont("helvetica", "bold");
       doc.setTextColor(17, 24, 39);
-      doc.text(formatMoney(profit), rightEdge - cardPadding, contentY, { align: "right" });
+      doc.text(formatPdfMoney(profit), rightEdge - cardPadding, contentY, { align: "right" });
     });
 
     const priceCardHeight = cardPadding * 2 + lineHeight + 6 + 22 + lineHeight + 4;
@@ -2333,7 +2847,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
     doc.setTextColor(17, 24, 39);
-    doc.text(formatMoney(breakdown.finalPrice), rightEdge - cardPadding, priceValueY, {
+    doc.text(formatPdfMoney(breakdown.finalPrice), rightEdge - cardPadding, priceValueY, {
       align: "right",
     });
 
@@ -2405,17 +2919,24 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     inputs,
     breakdown,
     paramsSnapshot,
+    financialSnapshot,
+    quantity,
+    reliability,
     recordId,
   }: {
     inputs: PricingInputs;
     breakdown: PricingBreakdown;
-    paramsSnapshot: PricingParams;
+    paramsSnapshot: ActivePricingParams;
+    financialSnapshot: CostEngineV2Result;
+    quantity: number;
+    reliability: QuoteReliability;
     recordId?: string;
   }): HistoryRecord => {
     const materialSnapshot = getSelectedMaterialSnapshot();
     return {
+      ...createV2FinancialMetadata(),
       id: recordId ?? Date.now().toString(),
-      date: new Date().toLocaleDateString("es-AR"),
+      date: formatRegionalDate(new Date()),
       createdAt: new Date().toISOString(),
       duplicatedFrom: null,
       name: toyName || "Sin nombre",
@@ -2424,13 +2945,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       inputs,
       params: paramsSnapshot,
       breakdown,
+      financialSnapshot,
+      reliabilitySnapshot: reliability,
+      machineSnapshot: financialSnapshot.machine,
       total: breakdown.finalPrice,
       selectedMaterialId: selectedMaterialId || "",
-      materialGramsUsed: selectedMaterialId ? inputs.materialGrams * 1 : 0,
+      materialGramsUsed: selectedMaterialId ? financialSnapshot.material.billableGrams * quantity : 0,
       materialType: selectedMaterialId ? materialSnapshot.materialType : null,
       materialColorName: selectedMaterialId ? materialSnapshot.materialColorName : null,
       materialBrand: selectedMaterialId ? materialSnapshot.materialBrand : null,
-      quantity: 1,
+      quantity,
       status: "cotizada",
       stockDeductedGrams: 0,
       startedAt: null,
@@ -2445,17 +2969,24 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     inputs,
     breakdown,
     paramsSnapshot,
+    financialSnapshot,
+    quantity,
+    reliability,
     mode,
   }: {
     inputs: PricingInputs;
     breakdown: PricingBreakdown;
-    paramsSnapshot: PricingParams;
+    paramsSnapshot: ActivePricingParams;
+    financialSnapshot: CostEngineV2Result;
+    quantity: number;
+    reliability: QuoteReliability;
     mode: "create" | "update";
   }): boolean => {
     if (mode === "update" && editingRecordId) {
       let updated = false;
       const nextRecords = records.map((record) => {
         if (record.id !== editingRecordId) return record;
+        if (isLegacyFinancialRecord(record)) return record;
         updated = true;
         const nextSelectedMaterialId = selectedMaterialId || "";
         const materialSnapshot = getSelectedMaterialSnapshot();
@@ -2467,9 +2998,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
           inputs,
           params: paramsSnapshot,
           breakdown,
+          financialSnapshot,
+          reliabilitySnapshot: reliability,
+          machineSnapshot: financialSnapshot.machine,
+          ...createV2FinancialMetadata(),
           total: breakdown.finalPrice,
+          quantity,
           selectedMaterialId: nextSelectedMaterialId,
-          materialGramsUsed: nextSelectedMaterialId ? inputs.materialGrams * 1 : 0,
+          materialGramsUsed: nextSelectedMaterialId
+            ? financialSnapshot.material.billableGrams * quantity
+            : 0,
           materialType: nextSelectedMaterialId ? materialSnapshot.materialType : null,
           materialColorName: nextSelectedMaterialId ? materialSnapshot.materialColorName : null,
           materialBrand: nextSelectedMaterialId ? materialSnapshot.materialBrand : null,
@@ -2485,7 +3023,14 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       return false;
     }
 
-    const newRecord = buildRecord({ inputs, breakdown, paramsSnapshot });
+    const newRecord = buildRecord({
+      inputs,
+      breakdown,
+      paramsSnapshot,
+      financialSnapshot,
+      quantity,
+      reliability,
+    });
     const signature = buildRecordSignature(inputs, paramsSnapshot);
     const saved = persistHistory([newRecord, ...records], { signature });
     if (saved) {
@@ -2508,19 +3053,42 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setIsCalculating(true);
 
     setTimeout(() => {
-      const breakdown = pricingCalculator({ inputs, params });
-      if (!isValidBreakdown(breakdown)) {
+      try {
+        const { breakdown, snapshot, quantity, lotTotals, reliability, effectiveParams } =
+          calculateCurrentPricing(inputs, params);
+        if (!isValidBreakdown(breakdown)) {
+          setIsCalculating(false);
+          isCalculatingRef.current = false;
+          return;
+        }
+        setResult({
+          timeMinutes: inputs.timeMinutes,
+          materialGrams: inputs.materialGrams,
+          breakdown,
+          financialSnapshot: snapshot,
+          quantity,
+          lotTotals,
+          reliability,
+        });
+        saveCalculation({
+          inputs,
+          breakdown,
+          paramsSnapshot: effectiveParams,
+          financialSnapshot: snapshot,
+          quantity,
+          reliability,
+          mode: editingRecordId ? "update" : "create",
+        });
+      } catch (error) {
+        const message =
+          error instanceof FinancialValidationError
+            ? error.issues[0]
+            : "No fue posible calcular la cotización.";
+        toast.error(message);
         setIsCalculating(false);
         isCalculatingRef.current = false;
         return;
       }
-      setResult({ timeMinutes: inputs.timeMinutes, materialGrams: inputs.materialGrams, breakdown });
-      saveCalculation({
-        inputs,
-        breakdown,
-        paramsSnapshot: params,
-        mode: editingRecordId ? "update" : "create",
-      });
       setIsCalculating(false);
       isCalculatingRef.current = false;
     }, 1200);
@@ -2531,29 +3099,77 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const inputs = getInputs();
     if (!inputs) return;
     if (!isValidInputs(inputs) || !isValidParams(params)) return;
-    const breakdown = pricingCalculator({ inputs, params });
-    if (!isValidBreakdown(breakdown)) return;
-    setResult({ timeMinutes: inputs.timeMinutes, materialGrams: inputs.materialGrams, breakdown });
-  }, [params]);
+    try {
+      const { breakdown, snapshot, quantity, lotTotals, reliability } =
+        calculateCurrentPricing(inputs, params);
+      if (!isValidBreakdown(breakdown)) return;
+      setResult({
+        timeMinutes: inputs.timeMinutes,
+        materialGrams: inputs.materialGrams,
+        breakdown,
+        financialSnapshot: snapshot,
+        quantity,
+        lotTotals,
+        reliability,
+      });
+    } catch (error) {
+      if (error instanceof FinancialValidationError) {
+        setResult(null);
+      }
+    }
+    // Las funciones auxiliares son locales al Dashboard; las entradas reactivas están listadas explícitamente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    params,
+    selectedMaterialId,
+    materialStock,
+    machines,
+    selectedMachineId,
+    economicSettings,
+    quoteQuantity,
+    laborTasks,
+    additionalItems,
+  ]);
 
   const saveResult = () => {
     const inputs = getInputs();
     if (!inputs) return false;
     if (!isValidInputs(inputs) || !isValidParams(params)) return false;
 
-    const breakdown = pricingCalculator({ inputs, params });
-    if (!isValidBreakdown(breakdown)) return false;
-    setResult({ timeMinutes: inputs.timeMinutes, materialGrams: inputs.materialGrams, breakdown });
-    const saved = saveCalculation({
-      inputs,
-      breakdown,
-      paramsSnapshot: params,
-      mode: editingRecordId ? "update" : "create",
-    });
-    if (saved && !editingRecordId) {
-      clearFields();
+    try {
+      const { breakdown, snapshot, quantity, lotTotals, reliability, effectiveParams } =
+        calculateCurrentPricing(inputs, params);
+      if (!isValidBreakdown(breakdown)) return false;
+      setResult({
+        timeMinutes: inputs.timeMinutes,
+        materialGrams: inputs.materialGrams,
+        breakdown,
+        financialSnapshot: snapshot,
+        quantity,
+        lotTotals,
+        reliability,
+      });
+      const saved = saveCalculation({
+        inputs,
+        breakdown,
+        paramsSnapshot: effectiveParams,
+        financialSnapshot: snapshot,
+        quantity,
+        reliability,
+        mode: editingRecordId ? "update" : "create",
+      });
+      if (saved && !editingRecordId) {
+        clearFields();
+      }
+      return saved;
+    } catch (error) {
+      const message =
+        error instanceof FinancialValidationError
+          ? error.issues[0]
+          : "No pudimos guardar el cálculo. Revisa los valores ingresados.";
+      toast.error(message);
+      return false;
     }
-    return saved;
   };
 
   const clearFields = () => {
@@ -2563,7 +3179,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setAssemblyHours("");
     setAssemblyMinutes("");
     setMaterialWeight("");
-    setSelectedMaterialId("");
+    setQuoteQuantity("1");
+    setSelectedMaterialId(DEFAULT_PROFILE_MATERIAL_ID);
+    setLaborTasks([]);
+    setAdditionalItems([]);
     setStockError("");
     setResult(null);
     setEditingRecordId(null);
@@ -2626,17 +3245,25 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     return hours * 60 + minutes;
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: "ARS",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) => formatRegionalMoney(amount);
+
+  const formatRecordCurrency = (amount: number, record: HistoryRecord) =>
+    formatRegionalMoney(amount, {
+      config:
+        record.currency === "ARS"
+          ? LEGACY_ARGENTINA_REGIONAL_CONFIG
+          : COLOMBIA_REGIONAL_CONFIG,
+      includeCurrencyCode: record.currency === "ARS",
+    });
 
   function parseRecordDate(value: string) {
     const normalized = value.trim();
     if (!normalized) return null;
+    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+    if (isoMatch) {
+      const [, yearPart, monthPart, dayPart] = isoMatch;
+      return new Date(Number(yearPart), Number(monthPart) - 1, Number(dayPart));
+    }
     const parts = normalized.split(/[\/\-]/);
     if (parts.length === 3) {
       const [dayPart, monthPart, yearPart] = parts;
@@ -2651,12 +3278,23 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     return Number.isNaN(fallback.getTime()) ? null : fallback;
   }
 
-  const handleParamChange = <K extends keyof PricingParams>(key: K, value: string) => {
+  const handleParamChange = (key: keyof ActivePricingParams, value: string) => {
     const numericValue = parseFloat(value);
-    setParams((prev) => ({
-      ...prev,
-      [key]: Number.isNaN(numericValue) ? 0 : numericValue,
-    }));
+    setParams((prev) =>
+      ({
+        ...prev,
+        [key]: Number.isNaN(numericValue) ? 0 : numericValue,
+      }) as ActivePricingParams,
+    );
+  };
+
+  const handleDownloadFinancialBackup = () => {
+    try {
+      downloadFinancialBackup();
+      toast.success("Respaldo financiero descargado.");
+    } catch {
+      toast.error("No pudimos generar el respaldo financiero.");
+    }
   };
 
   const handleMarketingProfileChange = <K extends keyof MarketingProfile>(key: K, value: string) => {
@@ -2723,14 +3361,34 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       closeConfirmModal();
       return;
     }
-    const saved = updateRecordStatus(confirmTarget.id, "in_production", {
+    if (confirmTarget.productionOrderId) {
+      toast.info("Esta cotización ya tiene una orden de producción asociada.");
+      closeConfirmModal();
+      return;
+    }
+    const productionOrderId = `production-${Date.now()}`;
+    const productionOrder: HistoryRecord = {
+      ...confirmTarget,
+      id: productionOrderId,
+      date: formatRegionalDate(new Date()),
+      createdAt: new Date().toISOString(),
+      duplicatedFrom: confirmTarget.id,
+      status: "in_production",
+      sourceQuoteId: confirmTarget.id,
+      productionOrderId: null,
       stockDeductedGrams: 0,
       startedAt: null,
       completedAt: null,
       failure: null,
-    });
+      stockChanges: [],
+    };
+    const nextRecords = records.map((record) =>
+      record.id === confirmTarget.id ? { ...record, productionOrderId } : record,
+    );
+    const saved = persistHistory([productionOrder, ...nextRecords], { allowDuplicateSignature: true });
     if (saved) {
       applyBetaConsumption("production");
+      toast.success("Orden de producción creada sin descontar inventario.");
     }
     closeConfirmModal();
   };
@@ -2800,6 +3458,62 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     finalizeProduction(record);
   };
 
+  const openSaleModal = (record: HistoryRecord) => {
+    if (!isFinalizedOkStatus(record.status) || record.currency !== "COP") return;
+    const soldQuantity = sales
+      .filter((sale) => sale.productionId === record.id && sale.paymentStatus !== "cancelled")
+      .reduce((sum, sale) => sum + sale.quantity, 0);
+    const remaining = Math.max(0, record.quantity - soldQuantity);
+    if (remaining <= 0) {
+      toast.info("Toda la cantidad producida ya tiene ventas registradas.");
+      return;
+    }
+    setSaleTarget(record);
+    setSaleForm({
+      quantity: String(remaining),
+      unitPrice: "",
+      date: new Date().toISOString().slice(0, 10),
+      discount: "",
+      fees: "",
+      shippingCost: "",
+    });
+  };
+
+  const handleRegisterSale = () => {
+    if (!saleTarget) return;
+    try {
+      const quantity = Number(saleForm.quantity);
+      const soldQuantity = sales
+        .filter((sale) => sale.productionId === saleTarget.id && sale.paymentStatus !== "cancelled")
+        .reduce((sum, sale) => sum + sale.quantity, 0);
+      if (quantity + soldQuantity > saleTarget.quantity) {
+        toast.error("La cantidad vendida supera las unidades disponibles de esta producción.");
+        return;
+      }
+      const sale = registerSale({
+        id: `sale-${Date.now()}`,
+        productionId: saleTarget.id,
+        quoteId: saleTarget.duplicatedFrom ?? undefined,
+        date: saleForm.date,
+        quantity,
+        unitPrice: Number(saleForm.unitPrice),
+        discount: saleForm.discount.trim() ? Number(saleForm.discount) : 0,
+        fees: saleForm.fees.trim() ? Number(saleForm.fees) : 0,
+        shippingCost: saleForm.shippingCost.trim() ? Number(saleForm.shippingCost) : 0,
+        associatedUnitCost: saleTarget.breakdown.totalCost,
+      });
+      setSales((current) => [sale, ...current]);
+      setSaleTarget(null);
+      toast.success("Venta registrada. El ingreso real ya aparece separado de la producción.");
+    } catch (error) {
+      toast.error(
+        error instanceof FinancialValidationError
+          ? error.issues[0]
+          : "No pudimos registrar la venta. Revisa los valores.",
+      );
+    }
+  };
+
   const handleConfirmFailure = () => {
     if (!failureTarget) return;
     if (!isInProductionStatus(failureTarget.status)) {
@@ -2836,7 +3550,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       persistMaterialStock(nextStock);
     }
     const failureDetails: FailureDetails = {
-      date: new Date().toLocaleDateString("es-AR"),
+      date: formatRegionalDate(
+        new Date(),
+        {},
+        failureTarget.currency === "ARS"
+          ? LEGACY_ARGENTINA_REGIONAL_CONFIG
+          : COLOMBIA_REGIONAL_CONFIG,
+      ),
       percentPrinted: percent,
       lostGrams,
       lostCost,
@@ -2862,6 +3582,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       });
       return;
     }
+    if (isLegacyFinancialRecord(record)) {
+      toast.info(
+        "La cotización legacy ARS se conserva en modo de solo lectura y no se recalcula con el motor COP.",
+        { duration: 3500 },
+      );
+      return;
+    }
     setToyName(record.name);
     setCategory(record.category.trim() || "General");
     setPrintHours(toFixedString(Math.floor(record.inputs.timeMinutes / 60)));
@@ -2869,14 +3596,43 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setAssemblyHours(toFixedString(Math.floor(record.inputs.assemblyMinutes / 60)));
     setAssemblyMinutes(toFixedString(Math.round(record.inputs.assemblyMinutes % 60)));
     setMaterialWeight(toFixedString(record.inputs.materialGrams));
+    setQuoteQuantity(String(record.quantity || 1));
     setSelectedMaterialId(record.selectedMaterialId ?? "");
+    setSelectedMachineId(record.machineSnapshot?.machineId ?? selectedMachineId);
+    setLaborTasks(
+      (record.financialSnapshot?.labor.tasks ?? [])
+        .filter((task) => task.id !== "assembly-ui" && task.id !== "legacy-assembly-ui")
+        .map((task) => ({
+          id: task.id,
+          type: task.type,
+          name: task.name ?? "",
+          minutes: String(task.minutes),
+          hourlyRate: String(task.hourlyRate),
+        })),
+    );
+    setAdditionalItems(
+      (record.financialSnapshot?.additional.items ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: String(item.quantity),
+        unitCost: String(item.unitCost),
+      })),
+    );
     setStockError("");
-    setParams(record.params);
-    setResult({
-      timeMinutes: record.inputs.timeMinutes,
-      materialGrams: record.inputs.materialGrams,
-      breakdown: record.breakdown,
-    });
+    setParams({ ...DEFAULT_PARAMS, ...record.params });
+    if (record.financialSnapshot) {
+      setResult({
+        timeMinutes: record.inputs.timeMinutes,
+        materialGrams: record.inputs.materialGrams,
+        breakdown: record.breakdown,
+        financialSnapshot: record.financialSnapshot,
+        quantity: record.quantity || 1,
+        lotTotals: calculateLotTotals(record.financialSnapshot, record.quantity || 1),
+        reliability: record.reliabilitySnapshot ?? currentQuoteReliability,
+      });
+    } else {
+      setResult(null);
+    }
     setEditingRecordId(record.id);
     setActiveSection("calculator");
   };
@@ -2888,7 +3644,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       return;
     }
     if (isInProductionStatus(original.status)) {
-      toast.info("No podés duplicar una cotización en producción.", { duration: 2500 });
+      toast.info("No puedes duplicar una cotización en producción.", { duration: 2500 });
       return;
     }
     if (!isValidInputs(original.inputs)) {
@@ -2902,9 +3658,39 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     if (!ensureBetaQuota("quotes")) {
       return;
     }
+    if (isLegacyFinancialRecord(original)) {
+      const duplicatedLegacy: HistoryRecord = {
+        ...original,
+        ...createLegacyFinancialMetadata(),
+        id: Date.now().toString(),
+        date: formatRegionalDate(new Date(), {}, LEGACY_ARGENTINA_REGIONAL_CONFIG),
+        createdAt: new Date().toISOString(),
+        duplicatedFrom: original.id,
+        status: "cotizada",
+        stockDeductedGrams: 0,
+        startedAt: null,
+        completedAt: null,
+        reprintOfId: null,
+        failure: null,
+        stockChanges: [],
+      };
+      const saved = persistHistory([duplicatedLegacy, ...records], {
+        allowDuplicateSignature: true,
+      });
+      if (saved) {
+        applyBetaConsumption("quotes");
+        toast.success("Cotización legacy duplicada sin recalcular sus importes ARS.");
+      }
+      return;
+    }
     const inputs: PricingInputs = { ...original.inputs };
-    const paramsSnapshot: PricingParams = { ...params };
-    const breakdown = pricingCalculator({ inputs, params: paramsSnapshot });
+    const paramsSnapshot: ActivePricingParams = { ...params };
+    const { breakdown, snapshot, reliability, effectiveParams } = calculateCurrentPricing(
+      inputs,
+      paramsSnapshot,
+      original.selectedMaterialId ?? "",
+      typeof original.quantity === "number" && original.quantity > 0 ? original.quantity : 1,
+    );
     if (!isValidBreakdown(breakdown)) {
       toast.info("No pudimos recalcular la cotización con los valores actuales.", { duration: 2500 });
       return;
@@ -2917,19 +3703,23 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const materialColorName = original.materialColorName ?? fallbackSpool?.color?.name ?? null;
     const materialBrand = original.materialBrand ?? fallbackSpool?.brand ?? null;
     const duplicated: HistoryRecord = {
+      ...createV2FinancialMetadata(),
       id: Date.now().toString(),
-      date: new Date().toLocaleDateString("es-AR"),
+      date: formatRegionalDate(new Date()),
       createdAt: new Date().toISOString(),
       duplicatedFrom: original.id,
       name: original.name,
       productName: original.productName || original.name,
       category: original.category || "General",
       inputs,
-      params: paramsSnapshot,
+      params: effectiveParams,
       breakdown,
+      financialSnapshot: snapshot,
+      reliabilitySnapshot: reliability,
+      machineSnapshot: snapshot.machine,
       total: breakdown.finalPrice,
       selectedMaterialId: original.selectedMaterialId ?? "",
-      materialGramsUsed: inputs.materialGrams * quantity,
+      materialGramsUsed: snapshot.material.billableGrams * quantity,
       materialType,
       materialColorName,
       materialBrand,
@@ -2957,7 +3747,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const duplicated: HistoryRecord = {
       ...record,
       id: Date.now().toString(),
-      date: new Date().toLocaleDateString("es-AR"),
+      date: formatRegionalDate(
+        new Date(),
+        {},
+        record.currency === "ARS"
+          ? LEGACY_ARGENTINA_REGIONAL_CONFIG
+          : COLOMBIA_REGIONAL_CONFIG,
+      ),
       createdAt: new Date().toISOString(),
       status: "in_production",
       stockDeductedGrams: 0,
@@ -3007,7 +3803,23 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const dateB = parseRecordDate(b.date)?.getTime() ?? 0;
     return dateB - dateA;
   });
-  const monthlyMetrics = useMemo(() => calculateMonthlyMetrics(monthlyReportRecords), [monthlyReportRecords]);
+  const monthlyCopRecords = useMemo(
+    () => monthlyReportRecords.filter((record) => record.currency === "COP"),
+    [monthlyReportRecords],
+  );
+  const monthlySales = useMemo(
+    () =>
+      sales.filter((sale) => {
+        if (sale.currency !== "COP" || sale.paymentStatus === "cancelled") return false;
+        const parsed = parseRecordDate(sale.date);
+        return parsed?.getMonth() === reportMonth && parsed.getFullYear() === reportYear;
+      }),
+    [sales, reportMonth, reportYear],
+  );
+  const monthlyMetrics = useMemo(
+    () => calculateMonthlyMetrics(monthlyCopRecords, monthlySales),
+    [monthlyCopRecords, monthlySales],
+  );
   const monthlyItemsById = useMemo(
     () => new Map(monthlyMetrics.items.map((item) => [item.id, item])),
     [monthlyMetrics.items],
@@ -3208,8 +4020,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const detalle = monthlyReportRecords.map((record) => {
       const snapshot = resolveMaterialSnapshotFromRecord(record);
       const item = monthlyItemsById.get(record.id);
-      const priceValue = item?.revenueItem ?? 0;
-      const profitValue = item?.netProfitItem ?? 0;
+      const priceValue =
+        item?.revenueItem ?? (isFinalizedFailedStatus(record.status) ? 0 : record.breakdown.finalPrice);
+      const profitValue =
+        item?.netProfitItem ?? (isFinalizedFailedStatus(record.status) ? 0 : record.breakdown.profit);
       const costValue = item?.costTotalItem ?? record.breakdown.totalCost;
       const gramsUsedValue = item?.gramsUsed ?? 0;
       const gramsLostValue = item?.gramsLost ?? 0;
@@ -3235,6 +4049,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
           ? Number(record.failure.energyCostLost.toFixed(0))
           : 0,
         notaFallo: record.failure?.note ?? "",
+        currency: record.currency,
       };
     });
 
@@ -3246,6 +4061,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }));
 
     return {
+      currency: "COP",
       periodoLabel: `${reportMonthLabel} ${reportYear}`.trim(),
       periodoKey: `${reportYear}-${String(reportMonth + 1).padStart(2, "0")}`,
       ingresos: reporteMensual.ingresos,
@@ -3289,7 +4105,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const reportAlerts = useMemo(() => {
     const alerts: string[] = [];
     if (!rentabilidadPositive) {
-      alerts.push("Rentabilidad neta negativa.");
+      alerts.push("Rentabilidad estimada negativa.");
     }
     if (monthlyFailureRate >= 10) {
       alerts.push("Tasa de fallas elevada.");
@@ -3546,6 +4362,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
               exit={{ opacity: 0, x: 20 }}
               className="max-w-4xl mx-auto"
             >
+              <QuickQuoteIntro profileName={COSTLY_STANDARD_PROFILE.name} />
               <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
                   <Sparkles className="text-yellow-500" />
@@ -3560,17 +4377,6 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       value={toyName}
                       onChange={(e) => setToyName(e.target.value)}
                       placeholder="ej. Soporte X1"
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
-                    <input
-                      type="text"
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      placeholder="General"
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                     />
                   </div>
@@ -3599,30 +4405,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Tiempo de armado</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="number"
-                        value={assemblyHours}
-                        onChange={(e) => setAssemblyHours(e.target.value)}
-                        placeholder="Horas"
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
-                        min="0"
-                      />
-                      <input
-                        type="number"
-                        value={assemblyMinutes}
-                        onChange={(e) => setAssemblyMinutes(e.target.value)}
-                        placeholder="Minutos"
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
-                        min="0"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Si no hay armado, deja en 0.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Peso del material (gramos)</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Material consumido (gramos)</label>
                     <input
                       type="number"
                       value={materialWeight}
@@ -3633,10 +4416,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       placeholder="ej. 142"
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                     />
+                    <p className="mt-2 text-xs text-gray-500">
+                      Usa el total del laminador. Si ya incluye purga, expulsado o desperdicio multicolor, no lo sumes otra vez.
+                    </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Filamento a usar</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Material</label>
                     <select
                       value={selectedMaterialId}
                       onChange={(event) => {
@@ -3645,36 +4431,90 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       }}
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
                     >
-                      <option value="">Sin seleccionar (opcional)</option>
-                      {materialStock.length === 0 && <option value="">No hay spools cargados</option>}
-                      {materialStock.map((spool) => (
-                        <option key={spool.id} value={spool.id}>
-                          {spool.displayName}
-                          {spool.isDemo ? " · Demo" : ""} · {spool.gramsAvailable}g
-                        </option>
+                      {COSTLY_STANDARD_PROFILE.materials.map((material) => (
+                        <option key={material.id} value={material.id}>{material.label}</option>
                       ))}
+                      {materialStock.some((spool) => spool.enabled) && (
+                        <optgroup label="Mis materiales guardados">
+                          {materialStock.filter((spool) => spool.enabled).map((spool) => (
+                            <option key={spool.id} value={spool.id}>
+                              {spool.displayName}{spool.isDemo ? " · Demo" : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
+                    <p className="mt-2 text-xs text-gray-500">
+                      {selectedMaterial
+                        ? "Usaremos tu costo guardado cuando esté disponible; si no, el perfil estándar."
+                        : `${selectedProfileMaterial?.label ?? "PLA estándar"} está listo para cotizar.`}
+                    </p>
                     {stockError && <p className="text-xs text-red-500 mt-2">{stockError}</p>}
                   </div>
                 </div>
 
                 <div className="mt-10 border-t border-gray-100 pt-8">
                   <div className="mb-6">
-                    <h3 className="text-xl font-semibold text-gray-900">Parámetros base (editables)</h3>
+                    <h3 className="text-xl font-semibold text-gray-900">Unidades y acabados</h3>
                     <p className="text-sm text-gray-500">
-                      Importante: solo cambia estos valores si varían los costos base. Los productos se cargan en la hoja
-                      'Costos'.
+                      Todo es por unidad. Costly multiplica automáticamente el total de la cotización.
                     </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Unidades a producir</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={quoteQuantity}
+                      onChange={(event) => setQuoteQuantity(event.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">Los tiempos, gramos y costos ingresados son por unidad.</p>
+                  </div>
+
+                  <QuickFinishEditor
+                    tasks={laborTasks}
+                    onAdd={addQuickFinish}
+                    onChange={(id, updates) => setLaborTasks((current) =>
+                      current.map((item) => item.id === id ? { ...item, ...updates } : item)
+                    )}
+                    onRemove={(id) => setLaborTasks((current) => current.filter((item) => item.id !== id))}
+                  />
+
+                  <details className="mt-6 rounded-2xl border border-gray-200 bg-slate-50 p-5">
+                    <summary className="cursor-pointer font-semibold text-gray-800">Ver cómo calculamos este valor</summary>
+                    <p className="mt-2 text-sm text-gray-600">
+                      El perfil {COSTLY_STANDARD_PROFILE.name} completa automáticamente material, electricidad, desgaste, trabajo de impresión, reserva por fallos y estrategia de precio.
+                    </p>
+                    <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      {COSTLY_STANDARD_PROFILE.validationNote}
+                    </p>
+                    <div className="mt-5 space-y-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Máquina</label>
+                    <select
+                      value={selectedMachineId}
+                      onChange={(event) => setSelectedMachineId(event.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
+                    >
+                      <option value="">Costly estándar (sin impresora específica)</option>
+                      {machines.filter((machine) => machine.enabled).map((machine) => (
+                        <option key={machine.id} value={machine.id}>{machine.name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-xs text-gray-500">Opcional. Una impresora con datos propios reemplaza consumo y desgaste del perfil.</p>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Filamento $/kg</label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Material seleccionado</label>
                       <input
-                        type="number"
-                        value={params.filamentCostPerKg}
-                        onChange={(e) => handleParamChange("filamentCostPerKg", e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
+                        type="text"
+                        value={`${formatCurrency(isConfiguredRate(selectedMaterial?.costPerKg) ? selectedMaterial.costPerKg : selectedProfileMaterial?.costPerKg ?? COSTLY_STANDARD_PROFILE.materials[0].costPerKg)} / kg`}
+                        disabled
+                        className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 rounded-xl text-gray-600"
                       />
                     </div>
 
@@ -3682,63 +4522,194 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Potencia (W)</label>
                       <input
                         type="number"
-                        value={params.powerWatts}
-                        onChange={(e) => handleParamChange("powerWatts", e.target.value)}
+                        value={selectedMachine?.powerWatts ?? (params.powerWatts > 0 ? params.powerWatts : COSTLY_STANDARD_PROFILE.electricity.powerWatts)}
+                        onChange={(e) => selectedMachine && updateMachine(selectedMachine.id, { powerWatts: e.target.value === "" ? undefined : Number(e.target.value) })}
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Costo kWh ($)</label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Electricidad (COP/kWh)</label>
                       <input
                         type="number"
-                        value={params.energyCostPerKwh}
-                        onChange={(e) => handleParamChange("energyCostPerKwh", e.target.value)}
+                        value={economicSettings.electricity.value ?? (params.energyCostPerKwh > 0 ? params.energyCostPerKwh : COSTLY_STANDARD_PROFILE.electricity.costPerKwh)}
+                        onChange={(e) =>
+                          setEconomicSettings((current) => ({
+                            ...current,
+                            electricity: { ...current.electricity, value: e.target.value === "" ? undefined : Number(e.target.value) },
+                            updatedAt: new Date().toISOString(),
+                          }))
+                        }
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Armado $/hora</label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Mano de obra (COP/hora)</label>
                       <input
                         type="number"
-                        value={params.laborPerHour}
-                        onChange={(e) => handleParamChange("laborPerHour", e.target.value)}
+                        value={economicSettings.labor.value ?? (params.laborPerHour > 0 ? params.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate)}
+                        onChange={(e) =>
+                          setEconomicSettings((current) => ({
+                            ...current,
+                            labor: { ...current.labor, value: e.target.value === "" ? undefined : Number(e.target.value) },
+                            updatedAt: new Date().toISOString(),
+                          }))
+                        }
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Desgaste (%)</label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Desgaste y mantenimiento</label>
+                      <input
+                        type="text"
+                        value={isConfiguredRate(selectedMachine?.machineCostPerHour) ? `${formatCurrency(selectedMachine.machineCostPerHour)} / hora` : `${params.wearPercent > 0 ? params.wearPercent : COSTLY_STANDARD_PROFILE.machine.wearPercent}% sobre costos directos`}
+                        disabled
+                        className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 rounded-xl text-gray-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Material adicional automático</label>
+                      <input
+                        type="text"
+                        value="0% · usamos el total del laminador"
+                        disabled
+                        className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50 rounded-xl text-gray-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Estrategia de precio</label>
+                      <select
+                        value={economicSettings.pricing.mode ?? COSTLY_STANDARD_PROFILE.pricing.mode}
+                        onChange={(event) => {
+                          const mode = event.target.value === "" ? undefined : event.target.value as ActivePricingParams["pricingMode"];
+                          setEconomicSettings((current) => ({ ...current, pricing: { ...current.pricing, mode }, updatedAt: new Date().toISOString() }));
+                          if (mode) setParams((prev) => ({ ...prev, pricingMode: mode }));
+                        }}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
+                      >
+                        <option value="markup">Recargo sobre costo (Markup)</option>
+                        <option value="target_margin">Margen objetivo</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        {economicSettings.pricing.mode === "target_margin" ? "Margen objetivo (%)" : "Markup (%)"}
+                      </label>
                       <input
                         type="number"
-                        value={params.wearPercent}
-                        onChange={(e) => handleParamChange("wearPercent", e.target.value)}
+                        value={economicSettings.pricing.percentage ?? (params.pricingPercent > 0 ? params.pricingPercent : COSTLY_STANDARD_PROFILE.pricing.percentage)}
+                        onChange={(e) => {
+                          const percentage = e.target.value === "" ? undefined : Number(e.target.value);
+                          setEconomicSettings((current) => ({ ...current, pricing: { ...current.pricing, percentage }, updatedAt: new Date().toISOString() }));
+                          if (percentage !== undefined) handleParamChange("pricingPercent", e.target.value);
+                        }}
                         className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Operativo (%)</label>
-                      <input
-                        type="number"
-                        value={params.operationalPercent}
-                        onChange={(e) => handleParamChange("operationalPercent", e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
-                      />
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Redondeo comercial</label>
+                      <select
+                        value={economicSettings.pricing.roundingStrategy}
+                        onChange={(event) =>
+                          {
+                            const roundingStrategy = event.target.value as ActivePricingParams["roundingStrategy"];
+                            setEconomicSettings((current) => ({ ...current, pricing: { ...current.pricing, roundingStrategy }, updatedAt: new Date().toISOString() }));
+                            setParams((prev) => ({ ...prev, roundingStrategy }));
+                          }
+                        }
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
+                      >
+                        <option value="exact">Sin redondeo</option>
+                        <option value="nearest100">Al centenar más cercano</option>
+                        <option value="nearest500">A 500 más cercano</option>
+                        <option value="nearest1000">Al millar más cercano</option>
+                      </select>
                     </div>
+                  </div>
+                    </div>
+                  </details>
+                  <button type="button" onClick={() => setActiveSection("settings")} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-800">
+                    <Settings size={17} /> Personalizar mis costos
+                  </button>
+                </div>
 
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Utilidad (%)</label>
-                      <input
-                        type="number"
-                        value={params.profitPercent}
-                        onChange={(e) => handleParamChange("profitPercent", e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
-                      />
+                <details className="mt-4 rounded-2xl border border-gray-200 p-5">
+                  <summary className="cursor-pointer text-sm font-semibold text-gray-700">Más opciones de costos</summary>
+                <div className="mt-5 grid gap-6 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-gray-200 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">Tareas de trabajo</h3>
+                        <p className="text-xs text-gray-500">Usan la tarifa base, salvo que indiques una tarifa particular.</p>
+                      </div>
+                      <button type="button" onClick={addLaborTask} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                        Agregar tarea
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {laborTasks.length === 0 && <p className="text-sm text-gray-500">No hay tareas adicionales.</p>}
+                      {laborTasks.map((task) => (
+                        <div key={task.id} className="grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1.2fr_0.7fr_0.9fr_auto]">
+                          <select
+                            value={task.type}
+                            onChange={(event) => {
+                              const type = event.target.value as LaborTaskInput["type"];
+                              const name = LABOR_TASK_OPTIONS.find((option) => option.value === type)?.label ?? "Trabajo manual";
+                              setLaborTasks((current) => current.map((item) => item.id === task.id ? { ...item, type, name } : item));
+                            }}
+                            className="rounded-lg border border-gray-200 px-2 py-2 text-sm bg-white"
+                          >
+                            {LABOR_TASK_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                          <input type="number" min="0" value={task.minutes} placeholder="Minutos" onChange={(event) => setLaborTasks((current) => current.map((item) => item.id === task.id ? { ...item, minutes: event.target.value } : item))} className="rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                          <input type="number" min="0" value={task.hourlyRate} placeholder="COP/h opcional" onChange={(event) => setLaborTasks((current) => current.map((item) => item.id === task.id ? { ...item, hourlyRate: event.target.value } : item))} className="rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                          <button type="button" onClick={() => setLaborTasks((current) => current.filter((item) => item.id !== task.id))} className="rounded-lg p-2 text-red-500 hover:bg-red-50" aria-label="Eliminar tarea"><Trash2 size={17} /></button>
+                          <p className="text-right text-xs font-medium text-gray-500 sm:col-span-4">
+                            {(() => {
+                              const rate = task.hourlyRate.trim() === ""
+                                ? economicSettings.labor.value ?? getManualLaborRate(task.type)
+                                : Number(task.hourlyRate);
+                              return isConfiguredRate(rate)
+                                ? `Costo: ${formatCurrency((Number(task.minutes) || 0) / 60 * rate)}`
+                                : "Costo: incluido por el perfil";
+                            })()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">Costos adicionales</h3>
+                        <p className="text-xs text-gray-500">Empaque, herrajes, adhesivos u otros insumos por unidad.</p>
+                      </div>
+                      <button type="button" onClick={addAdditionalItem} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                        Agregar costo
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {additionalItems.length === 0 && <p className="text-sm text-gray-500">No hay costos adicionales.</p>}
+                      {additionalItems.map((item) => (
+                        <div key={item.id} className="grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[1.2fr_0.6fr_0.9fr_auto]">
+                          <input value={item.name} placeholder="Concepto" onChange={(event) => setAdditionalItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value } : entry))} className="rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                          <input type="number" min="0" value={item.quantity} placeholder="Cant." onChange={(event) => setAdditionalItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, quantity: event.target.value } : entry))} className="rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                          <input type="number" min="0" value={item.unitCost} placeholder="COP unidad" onChange={(event) => setAdditionalItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitCost: event.target.value } : entry))} className="rounded-lg border border-gray-200 px-2 py-2 text-sm" />
+                          <button type="button" onClick={() => setAdditionalItems((current) => current.filter((entry) => entry.id !== item.id))} className="rounded-lg p-2 text-red-500 hover:bg-red-50" aria-label="Eliminar costo adicional"><Trash2 size={17} /></button>
+                          <p className="text-right text-xs font-medium text-gray-500 sm:col-span-4">Total: {formatCurrency((Number(item.quantity) || 0) * (Number(item.unitCost) || 0))}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
+                </details>
 
                 <button
                   onClick={calculatePrice}
@@ -3746,7 +4717,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                   className="mt-8 w-full bg-gradient-to-r from-blue-500 to-green-500 text-white font-bold py-4 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-3 text-lg shadow-lg"
                 >
                   <Calculator size={24} />
-                  {isCalculating ? "Calculando..." : "Calcular Precio"}
+                  {isCalculating ? "Calculando..." : "Calcular cotización"}
                 </button>
               </div>
               <AnimatePresence>
@@ -3786,6 +4757,18 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         <Sparkles size={32} />
                       </motion.div>
                       <h2 className="text-3xl font-bold">{toyName || "Producto"}</h2>
+                    </div>
+
+                    <div className={`mb-6 rounded-2xl border px-4 py-4 ${result.reliability.level === "complete" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                      <div className="flex items-center gap-2 font-semibold">
+                        {result.reliability.level === "complete" ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
+                        Cotización {result.reliability.level === "complete" ? "completa" : "parcial"}
+                      </div>
+                      {result.reliability.messages.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs">
+                          {result.reliability.messages.map((message) => <li key={message}>• {message}</li>)}
+                        </ul>
+                      )}
                     </div>
 
                     <AnimatePresence>
@@ -3833,36 +4816,47 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     <div className="grid md:grid-cols-2 gap-4 mb-6">
                       <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <Clock size={20} />
-                          <span className="text-sm font-medium">Tiempo estimado</span>
-                        </div>
-                        <p className="text-2xl font-bold">{formatTime(result.timeMinutes)}</p>
-                      </div>
-
-                      <div className="bg-white/20 backdrop-blur rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
                           <Package size={20} />
-                          <span className="text-sm font-medium">Material usado</span>
+                          <span className="text-sm font-medium">Costo de material</span>
                         </div>
-                        <p className="text-2xl font-bold">{result.materialGrams.toFixed(0)} g PLA</p>
+                        <p className="text-2xl font-bold">{formatCurrency(result.breakdown.materialCost)}</p>
                       </div>
 
                       <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <DollarSign size={20} />
-                          <span className="text-sm font-medium">Costo total</span>
+                          <Calculator size={20} />
+                          <span className="text-sm font-medium">Costo completo de producción</span>
                         </div>
-                        <p className="text-2xl font-bold">{formatCurrency(result.breakdown.subtotal)}</p>
+                        <p className="text-2xl font-bold">{formatCurrency(result.breakdown.totalCost)}</p>
                       </div>
 
                       <div className="bg-white/20 backdrop-blur rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <TrendingUp size={20} />
-                          <span className="text-sm font-medium">Ganancia esperada ({params.profitPercent}%)</span>
+                          <span className="text-sm font-medium">Precio sugerido de venta</span>
                         </div>
-                        <p className="text-2xl font-bold">{formatCurrency(result.breakdown.profit)}</p>
+                        <p className="text-2xl font-bold">{formatCurrency(result.breakdown.finalPrice)}</p>
+                      </div>
+
+                      <div className="bg-white/20 backdrop-blur rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock size={20} />
+                          <span className="text-sm font-medium">Tiempo y unidades</span>
+                        </div>
+                        <p className="text-2xl font-bold">{formatTime(result.timeMinutes)} · {result.quantity}</p>
                       </div>
                     </div>
+
+                    {result.quantity > 1 && (
+                      <div className="mb-6 rounded-xl bg-white/20 p-5 backdrop-blur">
+                        <p className="text-sm font-semibold uppercase tracking-wide">Total · {result.quantity} unidades</p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                          <div><p className="text-xs opacity-80">Costo total lote</p><p className="text-xl font-bold">{formatCurrency(result.lotTotals.estimatedProductionCost)}</p></div>
+                          <div><p className="text-xs opacity-80">Precio total lote</p><p className="text-xl font-bold">{formatCurrency(result.lotTotals.commercialPrice)}</p></div>
+                          <div><p className="text-xs opacity-80">Utilidad estimada lote</p><p className="text-xl font-bold">{formatCurrency(result.lotTotals.commercialProfit)}</p></div>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="bg-white text-gray-800 rounded-xl p-6 mb-6">
                       <div className="flex items-center justify-between mb-4">
@@ -3870,39 +4864,63 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           <DollarSign size={18} className="text-blue-500" />
                           <h3 className="text-lg font-semibold">Desglose</h3>
                         </div>
-                        <span className="text-xs text-gray-500">Actualizado con los parámetros base</span>
+                        <span className="text-xs text-gray-500">Valores por unidad · snapshot guardado</span>
                       </div>
                       <div className="grid md:grid-cols-2 gap-3 text-sm">
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-600">Costo material</span>
-                          <span className="font-semibold">{formatCurrency(result.breakdown.materialCost)}</span>
+                          <span className="text-gray-600">Costo de material</span>
+                          <span className="font-semibold">
+                            {formatCurrency(result.breakdown.netMaterialCost ?? result.breakdown.materialCost)}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-600">Costo energía</span>
+                          <span className="text-gray-600">Material adicional automático</span>
+                          <span className="font-semibold">No se suma</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">
+                            Electricidad ({(result.breakdown.energyKwh ?? 0).toFixed(3)} kWh)
+                          </span>
                           <span className="font-semibold">{formatCurrency(result.breakdown.energyCost)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-600">Costo armado</span>
-                          <span className="font-semibold">{formatCurrency(result.breakdown.laborCost)}</span>
+                          <span className="text-gray-600">Mano de obra de impresión</span>
+                          <span className="font-semibold">{formatCurrency(result.breakdown.printingLaborCost ?? 0)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-600">Desgaste</span>
-                          <span className="font-semibold">{formatCurrency(result.breakdown.wearCost)}</span>
+                          <span className="text-gray-600">Desgaste y mantenimiento de máquina</span>
+                          <span className="font-semibold">{formatCurrency(result.breakdown.machineCost ?? 0)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-600">Operativo</span>
-                          <span className="font-semibold">{formatCurrency(result.breakdown.operatingCost)}</span>
+                          <span className="text-gray-600">Mano de obra de acabados</span>
+                          <span className="font-semibold">{formatCurrency(result.breakdown.finishingLaborCost ?? 0)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">Otros costos opcionales</span>
+                          <span className="font-semibold">{formatCurrency(result.breakdown.additionalCost ?? 0)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">Reserva por fallos / merma</span>
+                          <span className="font-semibold">{formatCurrency(result.breakdown.failureReserveCost ?? 0)}</span>
                         </div>
                         <div className="flex items-center justify-between font-semibold text-gray-800">
-                          <span>Subtotal</span>
+                          <span>Costo completo de producción</span>
                           <span>{formatCurrency(result.breakdown.subtotal)}</span>
                         </div>
                         <div className="flex items-center justify-between font-semibold text-gray-800">
-                          <span>Utilidad ({params.profitPercent}%)</span>
+                          <span>Utilidad estimada</span>
                           <span>{formatCurrency(result.breakdown.profit)}</span>
                         </div>
+                        <div className="flex items-center justify-between font-semibold text-gray-800">
+                          <span>Margen resultante</span>
+                          <span>{formatPercent(result.breakdown.resultingMarginPercent ?? 0)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-gray-700">
+                          <span>Precio matemático</span>
+                          <span>{formatCurrency(result.breakdown.mathematicalPrice ?? result.breakdown.finalPrice)}</span>
+                        </div>
                         <div className="flex items-center justify-between font-bold text-green-600 text-lg border-t border-gray-200 pt-3 md:col-span-2">
-                          <span>Total final</span>
+                          <span>Precio comercial sugerido</span>
                           <span>{formatCurrency(result.breakdown.finalPrice)}</span>
                         </div>
                       </div>
@@ -3910,8 +4928,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
                     <div className="bg-white text-gray-800 rounded-xl p-6 mb-6">
                       <div className="text-center">
-                        <p className="text-sm font-medium mb-2">Precio sugerido de venta</p>
+                        <p className="text-sm font-medium mb-2">Precio sugerido por unidad</p>
                         <p className="text-5xl font-bold text-green-600">{formatCurrency(result.breakdown.finalPrice)}</p>
+                        {result.quantity > 1 && (
+                          <p className="mt-3 text-lg font-semibold text-gray-700">
+                            Lote de {result.quantity}: {formatCurrency(result.lotTotals.commercialPrice)}
+                          </p>
+                        )}
                         <div className="mt-4 flex items-center justify-center">
                           <div
                             className="relative inline-flex"
@@ -3949,24 +4972,15 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         onClick={() => {
                           if (!result || isSaving) return;
                           setIsSaving(true);
-                          try {
-                            const saved = saveResult();
-                            if (saved) {
-                              showSaveBanner({
-                                type: "success",
-                                message: "Cotización guardada",
-                                description: "Disponible en Cotizaciones.",
-                              });
-                            }
-                          } catch (error) {
+                          const saved = saveResult();
+                          if (saved) {
                             showSaveBanner({
-                              type: "error",
-                              message: "No pudimos guardar la cotización.",
-                              description: "Intentá de nuevo en unos segundos.",
+                              type: "success",
+                              message: "Cotización guardada",
+                              description: "Disponible en Cotizaciones.",
                             });
-                          } finally {
-                            window.setTimeout(() => setIsSaving(false), 300);
                           }
+                          window.setTimeout(() => setIsSaving(false), 300);
                         }}
                         disabled={!result || isSaving}
                         className="flex-1 bg-white text-blue-600 font-bold py-3 rounded-xl hover:bg-gray-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -4015,7 +5029,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <div>
                         <h2 className="text-2xl font-bold text-gray-800">Reportes</h2>
                         <p className="text-sm text-gray-600">
-                          Resumen ejecutivo del mes para decidir rápido qué ajustar.
+                          Resumen ejecutivo en COP. Los históricos legacy ARS se conservan, pero no se suman a estos totales.
                         </p>
                         <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-blue-600">
                           Reportes no es para registrar, es para decidir.
@@ -4035,7 +5049,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <h3 className="text-lg font-semibold text-gray-800">Resumen ejecutivo</h3>
                       <span className="text-xs uppercase tracking-wide text-gray-400">Qué pasó</span>
                     </div>
-                    <div className="grid lg:grid-cols-3 gap-4">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
                       <div
                         className={`rounded-2xl shadow-lg p-5 text-white ${
                           rentabilidadPositive
@@ -4049,12 +5063,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                             {rentabilidadPositive ? "Positiva" : "Negativa"}
                           </span>
                         </div>
-                        <p className="text-sm opacity-90">Rentabilidad neta</p>
+                        <p className="text-sm opacity-90">Rentabilidad estimada</p>
                         <p className="mt-2 text-2xl font-bold">
                           {formatCurrency(reporteMensual.rentabilidadNeta.neto)}
                         </p>
                         <p className="mt-1 text-xs opacity-90">
-                          Margen {formatPercent(reporteMensual.rentabilidadNeta.margenPct)}
+                          Margen estimado {formatPercent(reporteMensual.rentabilidadNeta.margenPct)}
                         </p>
                       </div>
 
@@ -4065,13 +5079,20 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         </div>
                         <p className="text-sm opacity-90">Ingresos reales</p>
                         <p className="mt-2 text-2xl font-bold">
-                          {formatCurrency(reporteMensual.ingresos.total)}
+                          {formatCurrency(monthlyMetrics.totals.ingresosRealesTotal)}
                         </p>
                         <p className="mt-1 text-xs opacity-90">
-                          {reporteMensual.ingresos.productos.length === 0
-                            ? "Sin ventas registradas"
-                            : `${reporteMensual.ingresos.productos.length} productos con ventas`}
+                          {monthlyMetrics.totals.hasActualSales
+                            ? `${monthlyMetrics.totals.ventasRegistradas} ventas · ${monthlyMetrics.totals.unidadesVendidas} unidades`
+                            : "Sin ventas registradas"}
                         </p>
+                      </div>
+
+                      <div className={`rounded-2xl shadow-lg p-5 text-white ${monthlyMetrics.totals.utilidadReal >= 0 ? "bg-gradient-to-br from-violet-500 to-violet-600" : "bg-gradient-to-br from-orange-500 to-orange-600"}`}>
+                        <div className="flex items-center justify-between mb-2"><TrendingUp size={28} /><span className="text-xs font-semibold uppercase tracking-wide">Real</span></div>
+                        <p className="text-sm opacity-90">Utilidad real de ventas</p>
+                        <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyMetrics.totals.utilidadReal)}</p>
+                        <p className="mt-1 text-xs opacity-90">Margen real {formatPercent(monthlyMetrics.totals.margenRealPct)} · costos {formatCurrency(monthlyMetrics.totals.costosVentasRealesTotal)}</p>
                       </div>
 
                       <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl shadow-lg p-5 text-white">
@@ -4268,10 +5289,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                 {canAdvancedMetrics ? formatCurrency(reporteMensual.ingresos.total) : "—"}
                               </span>
                             </div>
-                            <p className="mt-1 text-sm opacity-90">Ingresos reales</p>
+                            <p className="mt-1 text-sm opacity-90">Ingresos estimados por precio sugerido</p>
                             <div className="mt-3 space-y-2 text-xs">
                               {reporteMensual.ingresos.productos.length === 0 ? (
-                                <p className="opacity-80">Sin ventas registradas este mes.</p>
+                                <p className="opacity-80">Sin producciones finalizadas este mes.</p>
                               ) : (
                                 reporteMensual.ingresos.productos.slice(0, 3).map((item) => (
                                   <div key={item.name} className="space-y-1">
@@ -4447,7 +5468,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                 {canAdvancedMetrics ? formatCurrency(reporteMensual.rentabilidadNeta.neto) : "—"}
                               </span>
                             </div>
-                            <p className="mt-1 text-sm opacity-90">Rentabilidad neta</p>
+                            <p className="mt-1 text-sm opacity-90">Rentabilidad estimada</p>
                             <p className="mt-3 text-sm">
                               Margen neto:{" "}
                               <span className="font-semibold">
@@ -4601,9 +5622,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           <th className="text-left py-3 px-4 font-semibold text-gray-700">Nombre</th>
                           <th className="text-left py-3 px-4 font-semibold text-gray-700">Categoría</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Tiempo</th>
-                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Costo Total</th>
-                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Precio Venta</th>
-                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Ganancia</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Costo estimado lote</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Precio sugerido lote</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Utilidad estimada lote</th>
                           <th className="text-left py-3 px-4 font-semibold text-gray-700">Estado</th>
                           <th className="text-right py-3 px-4 font-semibold text-gray-700">Acciones</th>
                         </tr>
@@ -4611,19 +5632,20 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       <tbody>
                         {tableRecords.map((record, index) => {
                           const reportItem = isReportView ? monthlyItemsById.get(record.id) : null;
-                          const costValue = isReportView && reportItem ? reportItem.costTotalItem : record.breakdown.totalCost;
+                          const lotQuantity = record.quantity || 1;
+                          const costValue = isReportView && reportItem ? reportItem.costTotalItem : record.breakdown.totalCost * lotQuantity;
                           const priceValue =
                             isReportView && reportItem
                               ? reportItem.revenueItem
                               : isFinalizedFailedStatus(record.status)
                                 ? 0
-                                : record.breakdown.finalPrice;
+                                : record.breakdown.finalPrice * lotQuantity;
                           const profitValue =
                             isReportView && reportItem
                               ? reportItem.netProfitItem
                               : isFinalizedFailedStatus(record.status)
                                 ? 0
-                                : record.breakdown.profit;
+                                : record.breakdown.profit * lotQuantity;
                           const profitClass =
                             isReportView && reportItem && reportItem.netProfitItem < 0
                               ? "text-red-600"
@@ -4653,6 +5675,12 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                               <p className="mt-1 text-xs font-normal text-gray-500">
                                 {getMaterialDisplayFromRecord(record)}
                               </p>
+                              <p className="mt-1 text-xs font-normal text-gray-500">Lote: {record.quantity || 1} unidad(es)</p>
+                              {isLegacyFinancialRecord(record) && (
+                                <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  Histórico legacy · ARS
+                                </span>
+                              )}
                             </td>
                             <td className="py-4 px-4">
                               <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
@@ -4661,13 +5689,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                             </td>
                             <td className="py-4 px-4 text-right text-gray-600">{formatTime(record.inputs.timeMinutes)}</td>
                             <td className="py-4 px-4 text-right text-gray-800 font-medium">
-                              {formatCurrency(costValue)}
+                              {formatRecordCurrency(costValue, record)}
                             </td>
                             <td className="py-4 px-4 text-right text-green-600 font-bold">
-                              {formatCurrency(priceValue)}
+                              {formatRecordCurrency(priceValue, record)}
                             </td>
                             <td className={`py-4 px-4 text-right font-semibold ${profitClass}`}>
-                              {formatCurrency(profitValue)}
+                              {formatRecordCurrency(profitValue, record)}
                             </td>
                             <td className="py-4 px-4">
                               <span
@@ -4753,8 +5781,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                         openConfirmModal(record);
                                       }}
                                       className="inline-flex items-center justify-center rounded-full p-2 text-green-600 hover:bg-green-50 transition-colors"
-                                      aria-label="Pasar a producción"
-                                      title="Pasar a producción"
+                                      aria-label="Enviar a producción"
+                                      title={record.productionOrderId ? "Ya tiene una orden de producción" : "Enviar a producción"}
+                                      disabled={Boolean(record.productionOrderId)}
                                     >
                                       <ArrowRightCircle size={18} />
                                     </button>
@@ -4823,18 +5852,31 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                   activeSection === "production" &&
                                   (isFinalizedOkStatus(record.status) ||
                                     isFinalizedFailedStatus(record.status)) && (
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        duplicateProduction(record);
-                                      }}
-                                      className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
-                                      aria-label="Duplicar impresión"
-                                      title="Duplicar impresión"
-                                    >
-                                      <Copy size={18} />
-                                    </button>
+                                    <>
+                                      {isFinalizedOkStatus(record.status) && record.currency === "COP" && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => { event.stopPropagation(); openSaleModal(record); }}
+                                          className="inline-flex items-center justify-center gap-1 rounded-full border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                          aria-label="Registrar venta"
+                                          title="Registrar venta real"
+                                        >
+                                          <DollarSign size={14} /> Venta
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          duplicateProduction(record);
+                                        }}
+                                        className="inline-flex items-center justify-center rounded-full p-2 text-blue-600 hover:bg-blue-50 transition-colors"
+                                        aria-label="Duplicar impresión"
+                                        title="Duplicar impresión"
+                                      >
+                                        <Copy size={18} />
+                                      </button>
+                                    </>
                                   )}
                                 {!isReportView &&
                                   activeSection === "production" &&
@@ -5522,13 +6564,15 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     <th className="py-3 px-4 font-semibold text-gray-700">Color</th>
                     <th className="py-3 px-4 font-semibold text-gray-700">Marca</th>
                     <th className="py-3 px-4 font-semibold text-gray-700 text-right">Gramos</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700 text-right">Costo COP</th>
+                    <th className="py-3 px-4 font-semibold text-gray-700">Estado</th>
                     <th className="py-3 px-4 font-semibold text-gray-700 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {materialStock.length === 0 ? (
                     <tr>
-                      <td className="py-6 px-4 text-gray-500" colSpan={6}>
+                      <td className="py-6 px-4 text-gray-500" colSpan={8}>
                         No hay spools cargados.
                       </td>
                     </tr>
@@ -5543,6 +6587,15 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                                 Stock estimado (demo)
                               </span>
                             )}
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                spool.currency === "ARS"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-blue-100 text-blue-700"
+                              }`}
+                            >
+                              {spool.currency === "ARS" ? "Legacy ARS" : "COP"}
+                            </span>
                           </div>
                         </td>
                         <td className="py-3 px-4 text-gray-600">{spool.materialType || "—"}</td>
@@ -5557,6 +6610,15 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                         </td>
                         <td className="py-3 px-4 text-gray-600">{spool.brand || "—"}</td>
                         <td className="py-3 px-4 text-right text-gray-700">{spool.gramsAvailable} g</td>
+                        <td className="py-3 px-4 text-right text-gray-700">
+                          {spool.currency === "COP" && isConfiguredRate(spool.costPerKg) ? (
+                            <><span className="font-semibold">{formatCurrency(spool.costPerKg)}</span><span className="block text-xs text-gray-500">{formatCurrency(spool.costPerKg / 1000)} / g</span></>
+                          ) : <span className="text-xs font-semibold text-amber-700">Sin precio COP</span>}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${spool.enabled ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{spool.enabled ? "Activo" : "Inactivo"}</span>
+                          <span className="mt-1 block text-xs text-gray-500">{spool.technology} · {spool.unit}</span>
+                        </td>
                         <td className="py-3 px-4 text-right">
                           <button
                             type="button"
@@ -5645,24 +6707,49 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       onChange={(color) => setStockForm((prev) => ({ ...prev, color }))}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Gramos disponibles</label>
-                    <input
-                      type="number"
-                      value={stockForm.gramsAvailable}
-                      onChange={(event) => setStockForm((prev) => ({ ...prev, gramsAvailable: event.target.value }))}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Tecnología</label>
+                      <select value={stockForm.technology} onChange={(event) => setStockForm((prev) => ({ ...prev, technology: event.target.value as MaterialSpool["technology"] }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white">
+                        <option value="FDM">FDM</option><option value="SLA">SLA</option><option value="SLS">SLS</option><option value="other">Otra</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Unidad de compra</label>
+                      <select value={stockForm.unit} onChange={(event) => setStockForm((prev) => ({ ...prev, unit: event.target.value as MaterialSpool["unit"] }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white">
+                        <option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">l</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Cantidad inicial ({stockForm.unit})</label>
+                      <input type="number" min="0" value={stockForm.initialQuantity} onChange={(event) => setStockForm((prev) => ({ ...prev, initialQuantity: event.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Cantidad restante ({stockForm.unit})</label>
+                      <input type="number" min="0" value={stockForm.gramsAvailable} onChange={(event) => setStockForm((prev) => ({ ...prev, gramsAvailable: event.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Precio de compra (COP)</label>
+                      <input type="number" min="0" value={stockForm.purchasePrice} onChange={(event) => setStockForm((prev) => ({ ...prev, purchasePrice: event.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Fecha de compra</label>
+                      <input type="date" value={stockForm.purchaseDate} onChange={(event) => setStockForm((prev) => ({ ...prev, purchaseDate: event.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm" />
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-2">Costo por kg (opcional)</label>
-                    <input
-                      type="number"
-                      value={stockForm.costPerKg}
-                      onChange={(event) => setStockForm((prev) => ({ ...prev, costPerKg: event.target.value }))}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    />
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Costo por kg en COP (alternativa manual)</label>
+                    <input type="number" min="0" value={stockForm.costPerKg} onChange={(event) => setStockForm((prev) => ({ ...prev, costPerKg: event.target.value }))} className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm" />
+                    <p className="mt-1 text-xs text-gray-500">Si registras precio y cantidad inicial, el costo por kg/g se calcula automáticamente.</p>
                   </div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input type="checkbox" checked={stockForm.enabled} onChange={(event) => setStockForm((prev) => ({ ...prev, enabled: event.target.checked }))} />
+                    Material activo para cotizar
+                  </label>
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -5741,7 +6828,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">Análisis de rentabilidad</h2>
-                  <p className="text-sm text-gray-600">Basado en tu historial. No tenés que cargar nada de nuevo.</p>
+                  <p className="text-sm text-gray-600">
+                    Estimación basada en cotizaciones y producciones COP; no representa ventas cobradas.
+                  </p>
                 </div>
                 <span className="bg-purple-100 text-purple-600 text-xs font-semibold px-3 py-1 rounded-full">PRO</span>
               </div>
@@ -5754,13 +6843,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                 <div className={`mt-6 space-y-6 ${canAdvancedMetrics ? "" : "blur-sm opacity-60 pointer-events-none"}`}>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Ganancia total</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Utilidad estimada total</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
                         {canAdvancedMetrics ? formatCurrency(totalRentabilidadGanancia) : "—"}
                       </p>
                     </div>
                     <div className="bg-slate-50 rounded-2xl border border-gray-200 p-5">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Margen promedio</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Margen estimado promedio</p>
                       <p className="mt-2 text-2xl font-bold text-gray-800">
                         {canAdvancedMetrics ? formatPercent(averageRentabilidadMargin) : "—"}
                       </p>
@@ -6239,11 +7328,58 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         {activeSection === "settings" && (
           <section className="max-w-5xl mx-auto mt-10">
             <div className="rounded-3xl p-8 shadow-2xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
-              <h2 className="text-2xl font-bold text-[color:var(--color-text)]">Configuracion</h2>
+              <h2 className="text-2xl font-bold text-[color:var(--color-text)]">Personalizar mis costos</h2>
               <p className="mt-2 text-sm text-[color:var(--color-text-muted)]">
-                Ajustes generales de la calculadora.
+                Tus valores reemplazan el perfil {COSTLY_STANDARD_PROFILE.name}. Si dejas un campo vacío, la cotización rápida sigue funcionando con la referencia estándar.
               </p>
               <div className="mt-6 grid gap-4">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-blue-950">Estado de configuración: {businessSetupStatus.readyCount}/{businessSetupStatus.totalCount}</h3>
+                      <p className="mt-1 text-sm text-blue-800">Moneda operativa COP. Los registros legacy ARS se conservan solo como histórico.</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${businessSetupStatus.complete ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{businessSetupStatus.complete ? "Completa" : "Pendiente"}</span>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {businessSetupStatus.items.map((item) => <div key={item.code} className="flex gap-2 rounded-xl bg-white/80 p-3 text-sm">{item.ready ? <CheckCircle size={17} className="shrink-0 text-emerald-600" /> : <AlertTriangle size={17} className="shrink-0 text-amber-500" />}<div><p className="font-semibold text-gray-800">{item.label}</p><p className="text-xs text-gray-500">{item.detail}</p></div></div>)}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[color:var(--color-card-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><h3 className="text-base font-semibold text-[color:var(--color-card-text)]">Máquinas</h3><p className="mt-1 text-sm text-[color:var(--color-card-text-muted)]">Bambu Lab P2S queda creada como identidad inicial, sin costos ni potencia inventados.</p></div>
+                    <button type="button" onClick={addMachine} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Agregar máquina</button>
+                  </div>
+                  <div className="mt-4 space-y-4">
+                    {machines.map((machine) => (
+                      <div key={machine.id} className="rounded-xl border border-gray-200 p-4">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <label className="text-xs font-semibold text-gray-600">Nombre<input value={machine.name} onChange={(event) => updateMachine(machine.id, { name: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Marca<input value={machine.brand} onChange={(event) => updateMachine(machine.id, { brand: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Modelo<input value={machine.model} onChange={(event) => updateMachine(machine.id, { model: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Precio compra COP<input type="number" min="0" value={machine.purchasePrice ?? ""} onChange={(event) => updateMachine(machine.id, { purchasePrice: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="Sin configurar" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Potencia W<input type="number" min="0" value={machine.powerWatts ?? ""} onChange={(event) => updateMachine(machine.id, { powerWatts: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="Sin configurar" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Tarifa máquina COP/h<input type="number" min="0" value={machine.machineCostPerHour ?? ""} onChange={(event) => updateMachine(machine.id, { machineCostPerHour: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="Sin configurar" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <label className="text-xs font-semibold text-gray-600">Reserva mantenimiento COP/h<input type="number" min="0" value={machine.maintenanceReserve ?? ""} onChange={(event) => updateMachine(machine.id, { maintenanceReserve: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="Opcional" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                          <div className="flex items-end gap-3"><label className="flex items-center gap-2 pb-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={machine.enabled} onChange={(event) => updateMachine(machine.id, { enabled: event.target.checked })} />Activa</label><button type="button" disabled className="mb-0.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-400">Calcular tarifa · Próximamente</button></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[color:var(--color-card-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
+                  <h3 className="text-base font-semibold text-[color:var(--color-card-text)]">Configuración económica</h3>
+                  <p className="mt-1 text-sm text-[color:var(--color-card-text-muted)]">Tarifas vigentes y estrategia comercial en COP. Las notas sirven para dejar la fuente del valor.</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-gray-200 p-4"><h4 className="font-semibold text-gray-800">Electricidad</h4><div className="mt-3 grid gap-3"><input type="number" min="0" value={economicSettings.electricity.value ?? ""} onChange={(event) => updateEconomicSettings({ electricity: { ...economicSettings.electricity, value: event.target.value === "" ? undefined : Number(event.target.value) } })} placeholder="COP por kWh" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input type="date" value={economicSettings.electricity.validFrom ?? ""} onChange={(event) => updateEconomicSettings({ electricity: { ...economicSettings.electricity, validFrom: event.target.value || undefined } })} className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><textarea value={economicSettings.electricity.notes ?? ""} onChange={(event) => updateEconomicSettings({ electricity: { ...economicSettings.electricity, notes: event.target.value || undefined } })} placeholder="Fuente o notas" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div></div>
+                    <div className="rounded-xl border border-gray-200 p-4"><h4 className="font-semibold text-gray-800">Mano de obra base</h4><div className="mt-3 grid gap-3"><input type="number" min="0" value={economicSettings.labor.value ?? ""} onChange={(event) => updateEconomicSettings({ labor: { ...economicSettings.labor, value: event.target.value === "" ? undefined : Number(event.target.value) } })} placeholder="COP por hora" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input type="date" value={economicSettings.labor.validFrom ?? ""} onChange={(event) => updateEconomicSettings({ labor: { ...economicSettings.labor, validFrom: event.target.value || undefined } })} className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><textarea value={economicSettings.labor.notes ?? ""} onChange={(event) => updateEconomicSettings({ labor: { ...economicSettings.labor, notes: event.target.value || undefined } })} placeholder="Fuente o notas" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div></div>
+                    <label className="text-xs font-semibold text-gray-600">Estrategia de precio<select value={economicSettings.pricing.mode ?? ""} onChange={(event) => updateEconomicSettings({ pricing: { ...economicSettings.pricing, mode: event.target.value === "" ? undefined : event.target.value as ActivePricingParams["pricingMode"] } })} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"><option value="">Sin configurar</option><option value="markup">Markup sobre costo</option><option value="target_margin">Margen objetivo</option></select></label>
+                    <label className="text-xs font-semibold text-gray-600">Porcentaje<input type="number" min="0" value={economicSettings.pricing.percentage ?? ""} onChange={(event) => updateEconomicSettings({ pricing: { ...economicSettings.pricing, percentage: event.target.value === "" ? undefined : Number(event.target.value) } })} placeholder="Sin configurar" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
+                  </div>
+                </div>
+
                 <div className="rounded-2xl border border-[color:var(--color-card-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
@@ -6266,6 +7402,26 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           isDarkMode ? "translate-x-6" : "translate-x-0"
                         }`}
                       />
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-[color:var(--color-card-border)] bg-[color:var(--color-card-bg)] p-6 shadow-[var(--color-card-shadow)]">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-[color:var(--color-card-text)]">
+                        Respaldo financiero
+                      </h3>
+                      <p className="mt-1 text-sm text-[color:var(--color-card-text-muted)]">
+                        Descarga una copia de los parámetros, históricos, materiales, proyectos y perfil antes de futuras migraciones.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadFinancialBackup}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    >
+                      <Download size={18} />
+                      Descargar respaldo
                     </button>
                   </div>
                 </div>
@@ -6597,6 +7753,28 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
           </div>
         </div>
       )}
+      {saleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => setSaleTarget(null)}>
+          <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Registrar venta">
+            <h3 className="text-2xl font-bold text-gray-900">Registrar venta</h3>
+            <p className="mt-2 text-sm text-gray-600">{saleTarget.name} · producción finalizada. Este registro alimenta ingresos y utilidad reales, sin impuestos.</p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-gray-600">Cantidad vendida<input type="number" min="1" step="1" value={saleForm.quantity} onChange={(event) => setSaleForm((current) => ({ ...current, quantity: event.target.value }))} className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+              <label className="text-xs font-semibold text-gray-600">Precio unitario real (COP)<input type="number" min="0" value={saleForm.unitPrice} onChange={(event) => setSaleForm((current) => ({ ...current, unitPrice: event.target.value }))} className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+              <label className="text-xs font-semibold text-gray-600">Fecha<input type="date" value={saleForm.date} onChange={(event) => setSaleForm((current) => ({ ...current, date: event.target.value }))} className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+              <label className="text-xs font-semibold text-gray-600">Descuento total (COP)<input type="number" min="0" value={saleForm.discount} onChange={(event) => setSaleForm((current) => ({ ...current, discount: event.target.value }))} placeholder="0" className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+              <label className="text-xs font-semibold text-gray-600">Comisiones (COP)<input type="number" min="0" value={saleForm.fees} onChange={(event) => setSaleForm((current) => ({ ...current, fees: event.target.value }))} placeholder="0" className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+              <label className="text-xs font-semibold text-gray-600">Envío asumido (COP)<input type="number" min="0" value={saleForm.shippingCost} onChange={(event) => setSaleForm((current) => ({ ...current, shippingCost: event.target.value }))} placeholder="0" className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm" /></label>
+            </div>
+            <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-gray-700">
+              <div className="flex justify-between"><span>Ingreso neto estimado</span><strong>{formatCurrency(Math.max(0, (Number(saleForm.quantity) || 0) * (Number(saleForm.unitPrice) || 0) - (Number(saleForm.discount) || 0) - (Number(saleForm.fees) || 0) - (Number(saleForm.shippingCost) || 0)))}</strong></div>
+              <div className="mt-2 flex justify-between"><span>Costo asociado de producción</span><strong>{formatCurrency((Number(saleForm.quantity) || 0) * saleTarget.breakdown.totalCost)}</strong></div>
+            </div>
+            <p className="mt-3 text-xs text-gray-500">La cotización y la producción siguen siendo métricas estimadas. Solo esta venta cuenta como ingreso real.</p>
+            <div className="mt-6 flex gap-3"><button type="button" onClick={() => setSaleTarget(null)} className="rounded-xl bg-gray-100 px-5 py-3 font-semibold text-gray-700 hover:bg-gray-200">Cancelar</button><button type="button" onClick={handleRegisterSale} className="rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white hover:bg-emerald-700">Registrar venta</button></div>
+          </div>
+        </div>
+      )}
       {isConfirmModalOpen && confirmTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
@@ -6607,16 +7785,16 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Pasar a producción"
+            aria-label="Enviar a producción"
           >
-            <h3 className="text-2xl font-bold text-gray-900">Pasar a producción</h3>
+            <h3 className="text-2xl font-bold text-gray-900">Enviar a producción</h3>
             <p className="mt-3 text-sm text-gray-600">
-              Esta acción mueve la cotización a producción para que puedas finalizarla o marcarla como fallida.
+              Esta acción crea una orden de producción asociada. La cotización original se conserva.
             </p>
             <ul className="mt-4 space-y-2 text-sm text-gray-700">
-              <li>• Bloqueará la edición de la cotización</li>
+              <li>• Mantendrá la cotización sin cambios</li>
               <li>• No descuenta filamento todavía</li>
-              <li>• No impacta reportes hasta finalizar la impresión</li>
+              <li>• No impacta métricas hasta finalizar la impresión</li>
             </ul>
             <p className="mt-4 text-sm font-semibold text-red-500">
               Advertencia: esta acción no se puede deshacer.
@@ -6635,7 +7813,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                 onClick={handleConfirmProduction}
                 className="bg-gradient-to-r from-blue-500 to-green-500 text-white font-semibold px-5 py-3 rounded-xl hover:from-blue-600 hover:to-green-600 transition-all"
               >
-                Pasar a producción
+                Enviar a producción
               </button>
             </div>
           </div>
