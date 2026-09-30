@@ -42,6 +42,17 @@ export type CostProfile = {
   validationNote: string;
 };
 
+export type QuoteCostSettings = {
+  materialCostPerKg: number;
+  electricityCostPerKwh: number;
+  laborCostPerHour: number;
+  failureReservePercent: number;
+  wearPercent: number;
+  markupPercent: number;
+};
+
+export type QuoteCostOverrides = Partial<QuoteCostSettings>;
+
 const LEGACY_REFERENCE_RATE = 30_000;
 const LEGACY_LABOR_RATE = 1_000;
 
@@ -75,7 +86,7 @@ export const COSTLY_STANDARD_PROFILE: CostProfile = {
     },
   },
   failureReservePercent: 5,
-  pricing: { mode: "markup", percentage: 40, roundingStrategy: "exact" },
+  pricing: { mode: "markup", percentage: 100, roundingStrategy: "exact" },
   // Contrato preparado para futuros presets Bambu, Creality y Snapmaker.
   machinePresets: [],
   requiresColombiaValidation: true,

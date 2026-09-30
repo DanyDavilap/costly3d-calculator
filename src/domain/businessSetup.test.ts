@@ -9,10 +9,21 @@ import {
 
 describe("business setup", () => {
   it("crea la Bambu Lab P2S sin inventar valores económicos", () => {
+  it("crea el perfil Snapmaker U1 y conserva sin configurar sus costos comerciales", () => {
     const machine = createInitialMachine("2026-09-19T00:00:00.000Z");
-    expect(machine).toMatchObject({ name: "Bambu Lab P2S", brand: "Bambu Lab", model: "P2S", enabled: true });
+    expect(machine).toMatchObject({
+      name: "Snapmaker U1",
+      brand: "Snapmaker",
+      model: "U1",
+      powerWatts: 400,
+      enabled: true,
+      specifications: {
+        buildVolumeMm: { x: 270, y: 270, z: 270 },
+        toolheadCount: 4,
+        maxToolheadSpeedMmPerSecond: 500,
+      },
+    });
     expect(machine.machineCostPerHour).toBeUndefined();
-    expect(machine.powerWatts).toBeUndefined();
     expect(machine.purchasePrice).toBeUndefined();
     expect(machine.maintenanceReserve).toBeUndefined();
   });

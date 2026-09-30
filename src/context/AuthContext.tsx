@@ -55,8 +55,8 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Open access: simple email capture, no Supabase auth.
-const OPEN_ACCESS = true;
+// Supabase is the source of truth. Open access is available only as an explicit opt-in.
+const OPEN_ACCESS = import.meta.env.VITE_OPEN_ACCESS === "true";
 const LOCAL_AUTH_KEY = "costly3d_local_email";
 
 const defaultFeaturesForPlan = (plan: "beta" | "pro"): FeatureFlags => {

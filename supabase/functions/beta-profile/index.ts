@@ -15,6 +15,25 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
     },
   });
 
+const defaultFeaturesForPlan = (plan: "beta" | "pro") =>
+  plan === "pro"
+    ? {
+        branding: true,
+        advanced_metrics: true,
+        pdf_watermark: false,
+        advanced_exports: true,
+        quote_export: true,
+        cloud_sync: true,
+      }
+    : {
+        branding: false,
+        advanced_metrics: false,
+        pdf_watermark: true,
+        advanced_exports: false,
+        quote_export: true,
+        cloud_sync: false,
+      };
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -47,10 +66,38 @@ serve(async (req) => {
   }
 
   const email = authData.user.email;
+  const userId = authData.user.id;
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   });
+
+  const { data: profileRow, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("email, plan, beta_expires_at, max_quotes, features")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profileError) {
+    return jsonResponse({ error: "Failed to read profile" }, 500);
+  }
+
+  if (profileRow) {
+    const plan = profileRow.plan === "pro" ? "pro" : "beta";
+    return jsonResponse({
+      status: "active",
+      profile: {
+        email: profileRow.email ?? email,
+        plan,
+        beta_expires_at: profileRow.beta_expires_at ?? null,
+        max_quotes:
+          typeof profileRow.max_quotes === "number" && Number.isFinite(profileRow.max_quotes)
+            ? profileRow.max_quotes
+            : 9999,
+        features: defaultFeaturesForPlan(plan),
+      },
+    });
+  }
 
   const { data: row, error: rowError } = await supabaseAdmin
     .from("beta_waitlist")
@@ -76,11 +123,8 @@ serve(async (req) => {
       beta_expires_at: null,
       max_quotes: maxQuotes,
       features: {
-        branding: false,
+        ...defaultFeaturesForPlan("beta"),
         advanced_metrics: true,
-        pdf_watermark: true,
-        advanced_exports: false,
-        quote_export: true,
       },
     },
   });

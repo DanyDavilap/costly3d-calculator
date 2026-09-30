@@ -69,9 +69,7 @@ import {
   getBetaProductionLimit,
   getBetaQuoteCount,
   getBetaQuoteLimit,
-  isBeta,
   isBetaExpired,
-  isPro,
   openBetaAccessForm,
 } from "../../utils/appMode";
 import { isDarkModeEnabled, toggleDarkMode } from "../../utils/theme";
@@ -85,7 +83,7 @@ import { CAFECITO_URL } from "../../config/links";
 import MakerAssistant from "../../components/MakerAssistant";
 import QuickQuoteIntro from "../../components/quotes/QuickQuoteIntro";
 import QuickFinishEditor, { type QuickFinishType } from "../../components/quotes/QuickFinishEditor";
-import MaterialPricesEditor from "../../components/quotes/MaterialPricesEditor";
+import QuoteCostAdjustments from "../../components/quotes/QuoteCostAdjustments";
 import {
   COLOMBIA_REGIONAL_CONFIG,
   LEGACY_ARGENTINA_REGIONAL_CONFIG,
@@ -116,6 +114,8 @@ import {
   findProfileMaterial,
   findProfileMaterialByType,
   getManualLaborRate,
+  type QuoteCostOverrides,
+  type QuoteCostSettings,
 } from "../../domain/costProfile";
 import {
   createLegacyFinancialMetadata,
@@ -834,18 +834,21 @@ type DashboardSection =
 
 function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const handleOpenProModal = onOpenProModal ?? (() => {});
-  const isBetaApp = isBeta();
-  const isProApp = isPro();
-  const [betaQuoteCount, setBetaQuoteCount] = useState(() => (isBetaApp ? getBetaQuoteCount() : 0));
+  const isBetaApp = access?.plan === "beta";
+  const isProApp = access?.plan === "pro";
+  const quotaScope = access?.email;
+  const [betaQuoteCount, setBetaQuoteCount] = useState(() =>
+    isBetaApp ? getBetaQuoteCount(quotaScope) : 0,
+  );
   const [betaProductionCount, setBetaProductionCount] = useState(() =>
-    (isBetaApp ? getBetaProductionCount() : 0),
+    isBetaApp ? getBetaProductionCount(quotaScope) : 0,
   );
   const [betaExpired, setBetaExpired] = useState(() => (isBetaApp ? isBetaExpired() : false));
   const [betaModal, setBetaModal] = useState<null | {
     type: "expired" | "tokens";
     reason?: "quotes" | "production";
   }>(null);
-  const betaQuoteLimit = getBetaQuoteLimit();
+  const betaQuoteLimit = getBetaQuoteLimit(access?.maxQuotes);
   const betaProductionLimit = getBetaProductionLimit();
   const betaQuotesRemaining = Math.max(0, betaQuoteLimit - betaQuoteCount);
   const betaProductionsRemaining = Math.max(0, betaProductionLimit - betaProductionCount);
@@ -872,7 +875,13 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
       ? DEFAULT_MATERIAL_PRICES
       : loadMaterialPrices(window.localStorage),
   );
-  const [selectedMachineId, setSelectedMachineId] = useState("");
+  const [quoteCostOverrides, setQuoteCostOverrides] = useState<QuoteCostOverrides>({});
+  const [machines, setMachines] = useState<Machine[]>(() =>
+    typeof window === "undefined" ? [] : loadMachines(window.localStorage),
+  );
+  const [selectedMachineId, setSelectedMachineId] = useState(() =>
+    machines.find((machine) => machine.enabled)?.id ?? "",
+  );
   const [stockError, setStockError] = useState("");
   const [materialStock, setMaterialStock] = useState<MaterialSpool[]>(() => loadMaterialStock());
   const [projects, setProjects] = useState<Project[]>(() => loadStoredProjects());
@@ -884,13 +893,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   });
   const [marketingProfile, setMarketingProfile] = useState<MarketingProfile>(() => loadMarketingProfile());
   const [params, setParams] = useState<ActivePricingParams>(loadStoredParams);
-  const [machines, setMachines] = useState<Machine[]>(() =>
-    typeof window === "undefined" ? [] : loadMachines(window.localStorage),
-  );
   const [economicSettings, setEconomicSettings] = useState<BusinessEconomicSettings>(() =>
     typeof window === "undefined"
       ? {
-          schemaVersion: 1,
+          schemaVersion: 2,
           currency: "COP",
           electricity: { currency: "COP" },
           labor: { currency: "COP" },
@@ -1032,9 +1038,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   useEffect(() => {
     if (!isBetaApp) return;
-    ensureBetaStartedAt();
-    const quoteCount = getBetaQuoteCount();
-    const productionCount = getBetaProductionCount();
+    ensureBetaStartedAt(quotaScope);
+    const quoteCount = getBetaQuoteCount(quotaScope);
+    const productionCount = getBetaProductionCount(quotaScope);
     setBetaQuoteCount(quoteCount);
     setBetaProductionCount(productionCount);
     const expiredNow = isBetaExpired();
@@ -1050,7 +1056,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     if (productionCount >= betaProductionLimit) {
       setBetaModal({ type: "tokens", reason: "production" });
     }
-  }, [isBetaApp, betaQuoteLimit, betaProductionLimit]);
+  }, [isBetaApp, quotaScope, betaQuoteLimit, betaProductionLimit]);
 
   useEffect(() => {
     if (ENABLE_COMPARATOR) return;
@@ -1163,6 +1169,67 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   const selectedMaterialCostPerKg = isConfiguredRate(selectedMaterial?.costPerKg) && selectedMaterial?.currency === "COP"
     ? selectedMaterial.costPerKg
     : materialPrices[selectedMaterialReference.materialType];
+  const quoteCostDefaults: QuoteCostSettings = {
+    materialCostPerKg: selectedMaterialCostPerKg,
+    electricityCostPerKwh:
+      economicSettings.electricity.value
+      ?? (params.energyCostPerKwh > 0 ? params.energyCostPerKwh : COSTLY_STANDARD_PROFILE.electricity.costPerKwh),
+    laborCostPerHour:
+      economicSettings.labor.value
+      ?? (params.laborPerHour > 0 ? params.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
+    failureReservePercent:
+      params.operationalPercent > 0 ? params.operationalPercent : COSTLY_STANDARD_PROFILE.failureReservePercent,
+    wearPercent: params.wearPercent > 0 ? params.wearPercent : COSTLY_STANDARD_PROFILE.machine.wearPercent,
+    markupPercent:
+      economicSettings.pricing.percentage ?? COSTLY_STANDARD_PROFILE.pricing.percentage,
+  };
+
+  const restoreCostlyQuoteValues = () => {
+    setQuoteCostOverrides({
+      materialCostPerKg: selectedMaterialReference.costPerKg,
+      electricityCostPerKwh: COSTLY_STANDARD_PROFILE.electricity.costPerKwh,
+      laborCostPerHour: COSTLY_STANDARD_PROFILE.labor.printingHourlyRate,
+      failureReservePercent: COSTLY_STANDARD_PROFILE.failureReservePercent,
+      wearPercent: COSTLY_STANDARD_PROFILE.machine.wearPercent,
+      markupPercent: COSTLY_STANDARD_PROFILE.pricing.percentage,
+    });
+  };
+
+  const saveQuoteValuesAsDefaults = () => {
+    if (Object.keys(quoteCostOverrides).length === 0) return;
+    const values = { ...quoteCostDefaults, ...quoteCostOverrides };
+    if (selectedMaterial) {
+      persistMaterialStock(materialStock.map((spool) => spool.id === selectedMaterial.id
+        ? {
+            ...spool,
+            costPerKg: values.materialCostPerKg,
+            currency: "COP",
+            costContextDate: new Date().toISOString(),
+          }
+        : spool));
+    } else {
+      setMaterialPrices((current) => ({
+        ...current,
+        [selectedMaterialReference.materialType]: values.materialCostPerKg,
+      }));
+    }
+    setEconomicSettings((current) => ({
+      ...current,
+      electricity: { ...current.electricity, value: values.electricityCostPerKwh },
+      labor: { ...current.labor, value: values.laborCostPerHour },
+      pricing: { ...current.pricing, mode: "markup", percentage: values.markupPercent },
+      updatedAt: new Date().toISOString(),
+    }));
+    setParams((current) => ({
+      ...current,
+      wearPercent: values.wearPercent,
+      operationalPercent: values.failureReservePercent,
+      pricingMode: "markup",
+      pricingPercent: values.markupPercent,
+    }));
+    setQuoteCostOverrides({});
+    toast.success("Guardamos estos valores como tu nueva base.");
+  };
   const businessSetupStatus = calculateBusinessSetupStatus({
     machines,
     materials: materialStock,
@@ -1175,7 +1242,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     messages: [],
   };
 
-  const buildLaborTaskInputs = (inputs: PricingInputs) => {
+  const buildLaborTaskInputs = (inputs: PricingInputs, defaultHourlyRate?: number) => {
     const tasks: Array<Omit<LaborTaskInput, "hourlyRate"> & { hourlyRate?: number }> = [];
     if (inputs.assemblyMinutes > 0) {
       tasks.push({
@@ -1188,8 +1255,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     laborTasks.forEach((task) => {
       const minutes = Number(task.minutes);
       const profileRate = getManualLaborRate(task.type);
-      const savedRate = economicSettings.labor.value;
-      const specificRate = task.hourlyRate.trim() === "" ? savedRate ?? profileRate : Number(task.hourlyRate);
+      const specificRate = task.hourlyRate.trim() === ""
+        ? defaultHourlyRate ?? economicSettings.labor.value ?? profileRate
+        : Number(task.hourlyRate);
       tasks.push({
         id: task.id,
         type: task.type,
@@ -1222,27 +1290,25 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     const profileMaterial = findProfileMaterial(materialId) ?? findProfileMaterialByType(spool?.materialType)
       ?? COSTLY_STANDARD_PROFILE.materials[0];
     const profileMaterialCost = materialPrices[profileMaterial.materialType];
+    const storedMaterialCost = spool?.currency === "COP" && isConfiguredRate(spool.costPerKg)
+      ? spool.costPerKg
+      : profileMaterialCost;
+    const effectiveMaterialCost = quoteCostOverrides.materialCostPerKg ?? storedMaterialCost;
     const machine = machines.find((item) => item.id === selectedMachineId && item.enabled);
     const quantity = quantityOverride ?? Number.parseInt(quoteQuantity, 10);
     const effectiveParams: ActivePricingParams = {
       ...paramsSnapshot,
-      filamentCostPerKg: profileMaterialCost,
+      filamentCostPerKg: effectiveMaterialCost,
       powerWatts: machine?.powerWatts ?? (paramsSnapshot.powerWatts > 0 ? paramsSnapshot.powerWatts : COSTLY_STANDARD_PROFILE.electricity.powerWatts),
       machineCostPerHour: machine?.machineCostPerHour ?? 0,
-      printingLaborCostPerHour: economicSettings.labor.value ?? (paramsSnapshot.laborPerHour > 0 ? paramsSnapshot.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
-      wearPercent: isConfiguredRate(machine?.machineCostPerHour)
-        ? 0
-        : paramsSnapshot.wearPercent > 0
-          ? paramsSnapshot.wearPercent
-          : COSTLY_STANDARD_PROFILE.machine.wearPercent,
-      failureReservePercent: paramsSnapshot.operationalPercent > 0
-        ? paramsSnapshot.operationalPercent
-        : COSTLY_STANDARD_PROFILE.failureReservePercent,
-      energyCostPerKwh: economicSettings.electricity.value ?? (paramsSnapshot.energyCostPerKwh > 0 ? paramsSnapshot.energyCostPerKwh : COSTLY_STANDARD_PROFILE.electricity.costPerKwh),
-      laborPerHour: economicSettings.labor.value ?? (paramsSnapshot.laborPerHour > 0 ? paramsSnapshot.laborPerHour : COSTLY_STANDARD_PROFILE.labor.printingHourlyRate),
+      printingLaborCostPerHour: quoteCostOverrides.laborCostPerHour ?? quoteCostDefaults.laborCostPerHour,
+      wearPercent: quoteCostOverrides.wearPercent ?? (isConfiguredRate(machine?.machineCostPerHour) ? 0 : quoteCostDefaults.wearPercent),
+      failureReservePercent: quoteCostOverrides.failureReservePercent ?? quoteCostDefaults.failureReservePercent,
+      energyCostPerKwh: quoteCostOverrides.electricityCostPerKwh ?? quoteCostDefaults.electricityCostPerKwh,
+      laborPerHour: quoteCostOverrides.laborCostPerHour ?? quoteCostDefaults.laborCostPerHour,
       wastePercent: 0,
-      pricingMode: economicSettings.pricing.mode ?? paramsSnapshot.pricingMode,
-      pricingPercent: economicSettings.pricing.percentage ?? (paramsSnapshot.pricingPercent > 0 ? paramsSnapshot.pricingPercent : COSTLY_STANDARD_PROFILE.pricing.percentage),
+      pricingMode: "markup",
+      pricingPercent: quoteCostOverrides.markupPercent ?? quoteCostDefaults.markupPercent,
       roundingStrategy: economicSettings.pricing.roundingStrategy ?? COSTLY_STANDARD_PROFILE.pricing.roundingStrategy,
     };
     const calculated = calculateDashboardPricingV2({
@@ -1253,10 +1319,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         spoolId: spool?.id,
         materialName: spool?.displayName || profileMaterial.label,
         // Un costo legacy ARS nunca se reutiliza como COP.
-        costPerKg:
-          spool?.currency === "COP" && isConfiguredRate(spool.costPerKg)
-            ? spool.costPerKg
-            : profileMaterialCost,
+        costPerKg: effectiveMaterialCost,
         costContextDate:
           spool?.currency === "COP" ? spool.costContextDate : undefined,
         brand: spool?.brand,
@@ -1274,7 +1337,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
         brand: machine?.brand,
         model: machine?.model,
       },
-      laborTasks: buildLaborTaskInputs(inputs),
+      laborTasks: buildLaborTaskInputs(inputs, effectiveParams.laborPerHour),
       additionalItems: buildAdditionalItemInputs(),
     });
     return {
@@ -1767,26 +1830,18 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
   };
 
   const isProEnabled = isProApp;
-  const featureFlags: FeatureFlags = isProApp
-    ? {
-        branding: true,
-        advancedMetrics: true,
-        pdfWatermark: false,
-        advancedExports: true,
-        quoteExport: true,
-      }
-    : access?.features ?? {
-        branding: false,
-        advancedMetrics: false,
-        pdfWatermark: false,
-        advancedExports: false,
-        quoteExport: true,
-      };
-  const hasBrandingAccess = import.meta.env.VITE_BRANDING_UNLOCK === "true";
-  const canAdvancedMetrics = isProApp ? true : isBetaApp ? false : featureFlags.advancedMetrics;
-  const canMonthlyReportExport = isProApp || isBetaApp || featureFlags.advancedExports;
-  const canExcelExport = isProApp || featureFlags.advancedExports;
-  const canQuoteExport = isProEnabled || featureFlags.quoteExport;
+  const featureFlags: FeatureFlags = access?.features ?? {
+    branding: false,
+    advancedMetrics: false,
+    pdfWatermark: true,
+    advancedExports: false,
+    quoteExport: true,
+  };
+  const hasBrandingAccess = featureFlags.branding;
+  const canAdvancedMetrics = featureFlags.advancedMetrics;
+  const canMonthlyReportExport = featureFlags.advancedExports;
+  const canExcelExport = featureFlags.advancedExports;
+  const canQuoteExport = featureFlags.quoteExport;
   const shouldWatermarkPdf = featureFlags.pdfWatermark;
   const showStockOnboarding = materialStock.length === 0;
   const showStockBanner =
@@ -1803,7 +1858,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     }
     const limitReached =
       type === "quotes" ? betaQuoteCount >= betaQuoteLimit : betaProductionCount >= betaProductionLimit;
-    const canConsume = type === "quotes" ? canConsumeQuote() : canConsumeProduction();
+    const canConsume =
+      type === "quotes"
+        ? canConsumeQuote(betaQuoteLimit, quotaScope)
+        : canConsumeProduction(betaProductionLimit, quotaScope);
     if (!canConsume || limitReached) {
       setBetaModal({ type: "tokens", reason: type });
       return false;
@@ -1813,7 +1871,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
 
   const applyBetaConsumption = (type: "quotes" | "production") => {
     if (!isBetaApp) return;
-    const next = type === "quotes" ? consumeQuote() : consumeProduction();
+    const next =
+      type === "quotes"
+        ? consumeQuote(betaQuoteLimit, quotaScope)
+        : consumeProduction(betaProductionLimit, quotaScope);
     if (typeof next !== "number") return;
     if (type === "quotes") {
       setBetaQuoteCount(next);
@@ -3153,6 +3214,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     quoteQuantity,
     laborTasks,
     additionalItems,
+    quoteCostOverrides,
   ]);
 
   const saveResult = () => {
@@ -3207,6 +3269,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setSelectedMaterialId(DEFAULT_PROFILE_MATERIAL_ID);
     setLaborTasks([]);
     setAdditionalItems([]);
+    setQuoteCostOverrides({});
     setStockError("");
     setResult(null);
     setEditingRecordId(null);
@@ -3621,7 +3684,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     setAssemblyMinutes(toFixedString(Math.round(record.inputs.assemblyMinutes % 60)));
     setMaterialWeight(toFixedString(record.inputs.materialGrams));
     setQuoteQuantity(String(record.quantity || 1));
-    setSelectedMaterialId(record.selectedMaterialId ?? "");
+    setSelectedMaterialId(record.selectedMaterialId || DEFAULT_PROFILE_MATERIAL_ID);
     setSelectedMachineId(record.machineSnapshot?.machineId ?? selectedMachineId);
     setLaborTasks(
       (record.financialSnapshot?.labor.tasks ?? [])
@@ -3644,6 +3707,14 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
     );
     setStockError("");
     setParams({ ...DEFAULT_PARAMS, ...record.params });
+    setQuoteCostOverrides(record.financialSnapshot ? {
+      materialCostPerKg: record.financialSnapshot.material.costPerKg,
+      electricityCostPerKwh: record.financialSnapshot.energy.costPerKwh,
+      laborCostPerHour: record.financialSnapshot.printingLabor?.hourlyRate ?? record.params.laborPerHour,
+      failureReservePercent: record.financialSnapshot.failureReserve?.percentage ?? record.params.operationalPercent,
+      wearPercent: record.financialSnapshot.machine.wearPercent ?? record.params.wearPercent,
+      markupPercent: record.financialSnapshot.pricing.percentage,
+    } : {});
     if (record.financialSnapshot) {
       setResult({
         timeMinutes: record.inputs.timeMinutes,
@@ -4387,14 +4458,10 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
               className="max-w-4xl mx-auto"
             >
               <QuickQuoteIntro />
-              <MaterialPricesEditor
-                prices={materialPrices}
-                onChange={(material, value) => setMaterialPrices((current) => ({ ...current, [material]: value }))}
-              />
               <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
                   <Sparkles className="text-yellow-500" />
-                  Información del Producto
+                  1. Datos de la impresión
                 </h2>
 
                 <div className="grid md:grid-cols-2 gap-6">
@@ -4405,6 +4472,17 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       value={toyName}
                       onChange={(e) => setToyName(e.target.value)}
                       placeholder="ej. Soporte X1"
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
+                    <input
+                      type="text"
+                      value={category}
+                      onChange={(event) => setCategory(event.target.value)}
+                      placeholder="ej. Decoración"
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                     />
                   </div>
@@ -4473,18 +4551,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       )}
                     </select>
                     <p className="mt-2 text-xs font-medium text-emerald-700">
-                      Costo usado: {formatCurrency(selectedMaterialCostPerKg)} por kg
+                      Costo usado: {formatCurrency(quoteCostOverrides.materialCostPerKg ?? selectedMaterialCostPerKg)} por kg
                     </p>
                     {stockError && <p className="text-xs text-red-500 mt-2">{stockError}</p>}
-                  </div>
-                </div>
-
-                <div className="mt-10 border-t border-gray-100 pt-8">
-                  <div className="mb-6">
-                    <h3 className="text-xl font-semibold text-gray-900">Unidades</h3>
-                    <p className="text-sm text-gray-500">
-                      Todo es por unidad. Costly multiplica automáticamente el total de la cotización.
-                    </p>
                   </div>
 
                   <div>
@@ -4499,7 +4568,9 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                     />
                     <p className="mt-2 text-xs text-gray-500">Los tiempos, gramos y costos ingresados son por unidad.</p>
                   </div>
+                </div>
 
+                <div className="mt-6 border-t border-gray-100 pt-6">
                   <details className="mt-5">
                     <summary className="cursor-pointer text-sm font-semibold text-blue-700">+ Agregar acabados opcionales</summary>
                     <QuickFinishEditor
@@ -4511,6 +4582,19 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                       onRemove={(id) => setLaborTasks((current) => current.filter((item) => item.id !== id))}
                     />
                   </details>
+
+                  <QuoteCostAdjustments
+                    defaults={quoteCostDefaults}
+                    overrides={quoteCostOverrides}
+                    onChange={(field, value) => setQuoteCostOverrides((current) => ({ ...current, [field]: value }))}
+                    onResetField={(field) => setQuoteCostOverrides((current) => {
+                      const next = { ...current };
+                      delete next[field];
+                      return next;
+                    })}
+                    onRestoreCostly={restoreCostlyQuoteValues}
+                    onSaveAsDefaults={saveQuoteValuesAsDefaults}
+                  />
 
                   <details className="hidden">
                     <summary className="cursor-pointer font-semibold text-gray-800">Ver cómo calculamos este valor</summary>
@@ -7387,6 +7471,27 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           <label className="text-xs font-semibold text-gray-600">Reserva mantenimiento COP/h<input type="number" min="0" value={machine.maintenanceReserve ?? ""} onChange={(event) => updateMachine(machine.id, { maintenanceReserve: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="Opcional" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></label>
                           <div className="flex items-end gap-3"><label className="flex items-center gap-2 pb-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={machine.enabled} onChange={(event) => updateMachine(machine.id, { enabled: event.target.checked })} />Activa</label><button type="button" disabled className="mb-0.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-400">Calcular tarifa · Próximamente</button></div>
                         </div>
+                        {machine.specifications && (
+                          <div className="mt-4 rounded-lg bg-gray-50 p-4">
+                            <h4 className="text-sm font-semibold text-gray-800">Especificaciones técnicas · {machine.specifications.technology}</h4>
+                            <dl className="mt-3 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                              <div><dt className="text-gray-500">Volumen de impresión</dt><dd className="font-medium text-gray-800">{machine.specifications.buildVolumeMm.x} × {machine.specifications.buildVolumeMm.y} × {machine.specifications.buildVolumeMm.z} mm</dd></div>
+                              <div><dt className="text-gray-500">Cabezales</dt><dd className="font-medium text-gray-800">{machine.specifications.toolheadCount}</dd></div>
+                              <div><dt className="text-gray-500">Velocidad máxima</dt><dd className="font-medium text-gray-800">{machine.specifications.maxToolheadSpeedMmPerSecond} mm/s</dd></div>
+                              <div><dt className="text-gray-500">Aceleración máxima</dt><dd className="font-medium text-gray-800">{machine.specifications.maxAccelerationMmPerSecondSquared.toLocaleString("es-CO")} mm/s²</dd></div>
+                              <div><dt className="text-gray-500">Dimensiones (ancho × fondo × alto)</dt><dd className="font-medium text-gray-800">{machine.specifications.dimensionsMm.width} × {machine.specifications.dimensionsMm.depth} × {machine.specifications.dimensionsMm.height} mm · {machine.specifications.weightKg} kg</dd></div>
+                              <div><dt className="text-gray-500">Boquilla / filamento</dt><dd className="font-medium text-gray-800">{machine.specifications.nozzleDiameterMm} mm / {machine.specifications.filamentDiameterMm} mm</dd></div>
+                              <div><dt className="text-gray-500">Temperatura máxima</dt><dd className="font-medium text-gray-800">Boquilla {machine.specifications.maxNozzleTemperatureC} °C · cama {machine.specifications.maxBedTemperatureC} °C</dd></div>
+                              <div><dt className="text-gray-500">Potencia máxima de placa</dt><dd className="font-medium text-gray-800">{machine.specifications.inputPowerRatings.map((rating) => `${rating.watts} W (${rating.voltageRange})`).join(" · ")}</dd></div>
+                            </dl>
+                            <div className="mt-3 text-xs text-gray-600">
+                              {machine.specifications.supportedMaterials.map((group) => (
+                                <p key={group.setup}><span className="font-semibold">{group.setup}:</span> {group.materials.join(", ")}</p>
+                              ))}
+                            </div>
+                            <a className="mt-3 inline-block text-xs font-medium text-blue-700 underline" href={machine.specifications.sourceUrl} target="_blank" rel="noreferrer">Fuente oficial de Snapmaker</a>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -7425,6 +7530,7 @@ function Dashboard({ onOpenProModal, access }: DashboardProps) {
                           isDarkMode ? "translate-x-6" : "translate-x-0"
                         }`}
                       />
+                      {selectedMachine?.specifications && <p className="mt-1 text-xs text-gray-500">400 W es la potencia máxima de placa para 100-120 V, no el promedio durante una impresión. Para mayor precisión, usa el consumo medido.</p>}
                     </button>
                   </div>
                 </div>

@@ -6,13 +6,34 @@ import Landing from "./pages/Landing/Landing";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
 import { sendBetaWaitlistEmail } from "./services/waitlist";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider, useAuth, type AccessProfile } from "./context/AuthContext";
 import { CAFECITO_URL } from "./config/links";
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const DEMO_ACCESS_KEY = "costly3d_demo_access_v1";
+const DEMO_PROFILE: AccessProfile = {
+  email: "demo@costly3d.local",
+  plan: "beta",
+  betaExpiresAt: null,
+  maxQuotes: 15,
+  features: {
+    branding: false,
+    advancedMetrics: false,
+    pdfWatermark: true,
+    advancedExports: false,
+    quoteExport: true,
+  },
+};
 
 function AppShell() {
-  const { status: authStatus, loginWithEmail } = useAuth();
+  const { status: authStatus, profile, loginWithEmail } = useAuth();
+  const [demoActive, setDemoActive] = useState(() => {
+    try {
+      return window.localStorage.getItem(DEMO_ACCESS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [cafecitoModalOpen, setCafecitoModalOpen] = useState(false);
@@ -60,7 +81,22 @@ function AppShell() {
     setMessage("");
   };
 
-  const appVisible = authStatus === "authenticated";
+  const startDemo = () => {
+    try {
+      window.localStorage.setItem(DEMO_ACCESS_KEY, "1");
+    } catch {
+      // The demo still works for this tab when storage is unavailable.
+    }
+    setDemoActive(true);
+    setEmailModalOpen(false);
+    setSuccessModalOpen(false);
+    setError("");
+    setMessage("");
+  };
+
+  const effectiveProfile =
+    authStatus === "authenticated" && profile ? profile : demoActive ? DEMO_PROFILE : null;
+  const appVisible = effectiveProfile !== null;
 
   useEffect(() => {
     if (!appVisible) return;
@@ -93,9 +129,9 @@ function AppShell() {
       <Toaster position="top-right" richColors />
 
       {appVisible ? (
-        <Dashboard />
+        <Dashboard access={effectiveProfile ?? undefined} onOpenProModal={openEmailModal} />
       ) : (
-        <Landing onStart={openEmailModal} onOpenProModal={openEmailModal} />
+        <Landing onStart={startDemo} onOpenProModal={openEmailModal} />
       )}
 
       {emailModalOpen && (
@@ -110,8 +146,8 @@ function AppShell() {
             onClick={(event) => event.stopPropagation()}
           >
             <Card className="w-full">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">Deja tu correo</h2>
-              <p className="text-sm text-slate-500 mb-4">Te avisamos y abrimos la app completa al instante.</p>
+              <h2 className="text-2xl font-bold text-slate-900 mb-2">Entrar a Costly3D Pro</h2>
+              <p className="text-sm text-slate-500 mb-4">Te enviaremos un enlace seguro para abrir tu cuenta Pro.</p>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-600">Correo</label>
@@ -130,7 +166,7 @@ function AppShell() {
                   </div>
                 )}
                 <Button type="submit" className="w-full" disabled={status === "submitting"}>
-                  {status === "submitting" ? "Enviando..." : "Registrar email"}
+                  {status === "submitting" ? "Enviando..." : "Enviar enlace de acceso"}
                 </Button>
               </form>
             </Card>

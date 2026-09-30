@@ -11,9 +11,27 @@ export type Machine = {
   machineCostPerHour?: number;
   powerWatts?: number;
   maintenanceReserve?: number;
+  specifications?: MachineSpecifications;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MachineSpecifications = {
+  technology: string;
+  dimensionsMm: { width: number; depth: number; height: number };
+  weightKg: number;
+  buildVolumeMm: { x: number; y: number; z: number };
+  maxToolheadSpeedMmPerSecond: number;
+  maxAccelerationMmPerSecondSquared: number;
+  toolheadCount: number;
+  nozzleDiameterMm: number;
+  filamentDiameterMm: number;
+  maxNozzleTemperatureC: number;
+  maxBedTemperatureC: number;
+  supportedMaterials: { setup: string; materials: string[] }[];
+  inputPowerRatings: { voltageRange: string; watts: number }[];
+  sourceUrl: string;
 };
 
 export type DatedRate = {
@@ -30,7 +48,7 @@ export type PricingPreference = {
 };
 
 export type BusinessEconomicSettings = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   currency: "COP";
   electricity: DatedRate;
   labor: DatedRate;
@@ -77,11 +95,45 @@ export type QuoteReliability = {
 };
 
 export const createInitialMachine = (now = new Date().toISOString()): Machine => ({
-  id: "machine-bambu-lab-p2s",
-  name: "Bambu Lab P2S",
-  brand: "Bambu Lab",
-  model: "P2S",
+  id: "machine-snapmaker-u1",
+  name: "Snapmaker U1",
+  brand: "Snapmaker",
+  model: "U1",
   currency: "COP",
+  powerWatts: 400,
+  specifications: {
+    technology: "FDM",
+    dimensionsMm: { width: 584, depth: 499, height: 730 },
+    weightKg: 18.2,
+    buildVolumeMm: { x: 270, y: 270, z: 270 },
+    maxToolheadSpeedMmPerSecond: 500,
+    maxAccelerationMmPerSecondSquared: 20_000,
+    toolheadCount: 4,
+    nozzleDiameterMm: 0.4,
+    filamentDiameterMm: 1.75,
+    maxNozzleTemperatureC: 300,
+    maxBedTemperatureC: 100,
+    supportedMaterials: [
+      { setup: "Configuración base", materials: ["PLA", "PETG", "TPU", "PVA", "PCTG"] },
+      {
+        setup: "Con cubierta superior",
+        materials: ["PLA", "PETG", "TPU", "PVA", "PET", "ABS", "ASA", "PA", "PC"],
+      },
+      {
+        setup: "Con cubierta y boquilla de acero endurecido",
+        materials: [
+          "PLA", "PETG", "TPU", "PVA", "PET", "ABS", "ASA", "PA", "PC",
+          "Polímero reforzado con fibra de carbono",
+          "Polímero reforzado con fibra de vidrio",
+        ],
+      },
+    ],
+    inputPowerRatings: [
+      { voltageRange: "100-120 V", watts: 400 },
+      { voltageRange: "220-240 V", watts: 1150 },
+    ],
+    sourceUrl: "https://www.snapmaker.com/en-US/snapmaker-u1/specs",
+  },
   enabled: true,
   createdAt: now,
   updatedAt: now,
@@ -90,7 +142,7 @@ export const createInitialMachine = (now = new Date().toISOString()): Machine =>
 export const createEmptyEconomicSettings = (
   now = new Date().toISOString(),
 ): BusinessEconomicSettings => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   currency: "COP",
   electricity: { currency: "COP" },
   labor: { currency: "COP" },
